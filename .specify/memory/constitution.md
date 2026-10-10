@@ -24,8 +24,15 @@ for its stated function, MUST NOT transmit user data to third parties without ex
 consent, and MUST NOT commit secrets, credentials, or real user data to the repository. All
 external input (device files, imports, network requests) MUST be validated before use.
 
-Rationale: notes and reading annotations reveal personal information; trust depends on
-conservative handling.
+TLS certificate verification MUST be enabled for every connection that carries credentials.
+Disabling verification, including as a development or device workaround, MUST NOT be implemented;
+InkFeed's disabled-verification workaround MUST NOT be copied. Trust anchors MUST come from the
+device CA store when it is usable, otherwise from a CA file bundled with the application. An
+explicit "trust self-signed certificate" option MAY exist only if it is off by default, applies
+to a single user-chosen server, and shows a clear warning when enabled.
+
+Rationale: notes and reading annotations reveal personal information, and credentials sent over an
+unverified connection can be intercepted; trust depends on conservative handling.
 
 ### IV. Integration Testing at Device Boundaries
 Behavior at system boundaries MUST be covered by integration tests: reading and writing
@@ -36,14 +43,50 @@ include a contract test.
 Rationale: the device's data formats are the main external dependency and the most likely source
 of breakage.
 
+### V. Host-Testable Core
+Sync, API, and storage logic MUST be buildable and unit-testable on a desktop host without the Qt
+UI and without the device or its SDK. This logic MUST NOT depend on Qt Quick, InkView, or other
+device-only libraries. The build MUST provide a host (desktop) target that compiles and runs this
+logic and its tests.
+
+Rationale: fast, device-free tests make Test-First practical and keep the core portable.
+
+### VI. No Silent Data Loss
+User data MUST NOT be lost or silently overwritten. Writes to the server MUST send the note's
+last known ETag in an If-Match header, and an HTTP 412 response (or any other detected conflict)
+MUST be treated as a conflict. On conflict both versions MUST be kept and the user MUST be able to
+resolve it; neither version may be discarded automatically. Local changes MUST NOT be discarded
+until the server has confirmed them.
+
+Rationale: a reference implementation was observed to push without If-Match, which lets the last
+writer win and discard the other edit; for a notes app that is unacceptable.
+
 ## Security & Data Handling Constraints
 
 - Data MUST NOT be deleted or overwritten on a source device or file without explicit user
   confirmation; operations on source data are read-only by default.
 - Dependencies MUST be pinned and reviewed before being added (see Principle II).
 - Logs MUST NOT contain note contents or other personal data.
-- The technology stack has not been chosen yet. When it is, this section MUST be amended to
-  record it.
+
+## Technology Stack & Build Constraints
+
+- The stack follows `docs/inkfeed-analysis.md`: C++17, Qt 6.8 Quick/QML for the UI, CMake as the
+  build system, libcurl for networking, and SQLite for storage. Changing any of these requires a
+  constitution amendment.
+- The location of the PocketBook SDK MUST come only from the `POCKETBOOK_SDK` environment
+  variable or the `-DSDK_PATH` CMake option. SDK or toolchain paths MUST NOT be hard-coded in
+  build files, scripts, or documentation examples.
+- The build MUST provide both a device target (ARM, via the SDK) and a host target (Principle V).
+
+## Licensing & Attribution
+
+- Build, launcher, and packaging patterns MAY be adapted from InkFeed (MIT license). Each adapted
+  pattern MUST be attributed in a `NOTICE` file in the repository.
+- notes-android (GPL-3.0) is reference-only: no code, strings, comments, or documentation text
+  from it MAY be copied. Behavior MAY be reimplemented from the public Nextcloud Notes API
+  specification and from behavior-only descriptions such as `docs/notes-android-features.md`.
+- The project license MUST be chosen and documented (a `LICENSE` file and a README statement)
+  before the first public push. TODO(PROJECT_LICENSE): license not yet chosen.
 
 ## Development Workflow
 
@@ -51,6 +94,8 @@ of breakage.
 - A feature follows the Spec Kit flow: specification → plan → tasks → implementation, with the
   plan's Constitution Check passing (or deviations justified) before design proceeds.
 - Test gates: all tests pass and no new secrets are detected before merge.
+- Reviewers MUST reject changes that add TLS-verification bypasses, hard-coded SDK paths, or code
+  copied from notes-android.
 
 ## Governance
 
@@ -65,4 +110,4 @@ guidance; PATCH for clarifications and wording fixes.
 Compliance is reviewed in every pull request and in each plan's Constitution Check. Unjustified
 violations block the merge.
 
-**Version**: 1.0.0 | **Ratified**: 2026-10-10 | **Last Amended**: 2026-10-10
+**Version**: 1.1.0 | **Ratified**: 2026-10-10 | **Last Amended**: 2026-10-10
