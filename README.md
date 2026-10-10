@@ -23,8 +23,10 @@ links, background sync. Details: [spec.md](specs/001-pocketbook-notes-mvp/spec.m
 ## Security notes
 
 - **Certificates are always verified.** Only `https://` servers are accepted. There is no option to
-  skip verification, and none to trust a self-signed certificate in the MVP. If your server uses a
-  self-signed certificate, make it trusted on the device first.
+  skip verification, and no in-app option to accept an unverifiable certificate. If your server
+  uses a private CA or a self-signed certificate, place that certificate file as `custom-ca.pem`
+  in the app's data folder (`/mnt/ext1/system/pbnotes/`); the Settings screen shows whether a
+  custom CA is loaded. Verification stays on.
 - **The password is stored unencrypted.** The Nextcloud password is saved in clear text in
   `pbnotes.db` under `/mnt/ext1/system/pbnotes/` on the device's FAT partition, which anyone with
   access to the device or its USB storage can read. Use a Nextcloud **app password** (revocable,

@@ -22,6 +22,11 @@
   non-empty line of the text; there is no separate title field.
 - Q: Is a conflict copy uploaded to the server like any other new note? → A: Yes. It is uploaded
   and syncs like any other note.
+- Q: May users extend the trusted certificate authorities with their own CA file (for a private
+  CA or a self-signed server certificate)? → A: Yes. A user-supplied CA file is added to the
+  trusted authorities; verification always stays on, there is no "trust anything" option, and
+  Settings shows whether a custom CA is loaded. (This refines the self-signed answer above: there
+  is still no in-app option to accept an unverifiable certificate.)
 
 ## User Scenarios & Testing *(mandatory)*
 
@@ -54,6 +59,10 @@ failure gets a distinct, understandable message and nothing is saved.
    distinguishes this from rejected credentials.
 5. **Given** the server does not offer a compatible notes service, **When** the connection test
    runs, **Then** the app tells the user that the server cannot be used with this app.
+6. **Given** the server's certificate was issued by a private authority, **When** the user has
+   placed that authority's certificate file in the app's data folder and runs the connection test,
+   **Then** the connection succeeds with verification still on; **When** the file is missing or
+   invalid, **Then** the test fails as in scenario 3.
 
 ---
 
@@ -241,10 +250,17 @@ expected notes each time.
   rejected credentials, unverifiable certificate, and incompatible server.
 - **FR-003**: The system MUST verify the server's certificate on every connection that carries
   credentials and MUST NOT send credentials when verification fails. This release MUST NOT offer
-  any option to bypass verification or to trust a self-signed certificate.
+  any option to bypass verification or to accept an unverifiable certificate; trust can only be
+  extended with a user-supplied CA file (FR-038).
 - **FR-004**: The system MUST store the credentials only on the device, MUST NOT show the
   password after entry, and MUST NOT write it to logs or exported data.
 - **FR-005**: The system MUST support exactly one server account in this release.
+- **FR-038**: If the user places a certificate-authority file named `custom-ca.pem` in the app's
+  data folder, the system MUST add the certificates in that file to the trusted authorities for
+  all server connections, in addition to the device's (or the app's bundled) authorities.
+  Verification MUST stay enabled in every case. An empty, unreadable, oversized or non-certificate
+  file MUST be ignored with a visible warning. The Settings screen MUST show whether a custom CA
+  is loaded (none, loaded with the number of certificates, or invalid).
 
 **Note list and organization**
 
@@ -380,9 +396,11 @@ expected notes each time.
 - Only a current version of the Notes service is supported; the connection test reports older,
   incompatible servers clearly rather than working around them.
 - Certificates must be verifiable using the device's trusted certificate authorities or a
-  certificate bundle shipped with the app. Users whose server uses a self-signed certificate must
-  first make that certificate trusted on the device (confirmed in clarification: no in-app trust
-  option in this MVP).
+  certificate bundle shipped with the app, optionally extended by a user-supplied CA file
+  (FR-038). Users whose server uses a private CA or a self-signed certificate place that
+  certificate in the app's data folder; there is no in-app option to accept an unverifiable
+  certificate. How users copy the file onto the device is to be confirmed and documented in the
+  install guide.
 - The note title is the first non-empty line of the text, matching how the server names notes;
   there is no separate title field in the editor (confirmed in clarification).
 - A "conflict" is defined as a note changed on the device and also changed on the server since the

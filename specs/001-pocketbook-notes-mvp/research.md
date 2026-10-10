@@ -93,8 +93,27 @@ server check). Nothing here required a new `NEEDS CLARIFICATION` in the plan.
   file is always needed; shipping it regardless is cheap (~220 KB), so the plan ships it.
 - **Bundled file**: Mozilla bundle from curl.se, pinned by date and SHA-256, MPL-2.0, attributed in
   `NOTICE`; refreshed by a documented manual step, with the age shown in the About text.
-- **Self-signed**: excluded from this release (spec clarification). The CA setup sits in one
-  function so a future, warned, per-server trust option can be added by amendment.
+- **Custom CA (user-supplied)**: if `custom-ca.pem` exists in the app data directory
+  (`/mnt/ext1/system/pbnotes/`), `build_effective_ca` concatenates the base CA file chosen above
+  (device store if usable, otherwise the bundled file) with it into `effective-ca.pem` and that file
+  is used as `CURLOPT_CAINFO`. The custom file must be a readable, non-empty PEM file with at least
+  one certificate and at most 1 MB; otherwise it is ignored, the base is used, and Settings shows
+  "invalid". Verification always stays on and no setting trusts unverifiable certificates. A
+  self-signed server certificate works by placing that certificate in the file. Settings shows
+  whether a custom CA is loaded and how many certificates it contributes (counted from the PEM
+  markers), so the user can see that the file was read. The server's host name must still match
+  its certificate, so a self-signed certificate needs a correct subject alternative name.
+- **Why the base is "device store if usable, otherwise bundled"** (not always the bundled file):
+  decided 2026-10-10. Principle III already requires this order; the device store follows firmware
+  updates and may already hold a CA the user installed; and the selection code (T014) is needed
+  anyway. Always using the bundled file would be more predictable across devices, but it would
+  ignore the device store and need a constitution change, so it was rejected. The effective bundle
+  is the chosen base plus `custom-ca.pem`.
+- **VERIFY (device)**: how a user copies `custom-ca.pem` onto the device (USB mass storage to
+  `system/pbnotes/`, file-name case on FAT, visibility of the `system` folder) is checked by task
+  T109 and documented in `INSTALL.md`.
+- **Self-signed trust option**: the in-app "trust anything" or per-server trust toggle is excluded
+  from this release (spec FR-003); `custom-ca.pem` is the supported way.
 - **Also**: only `https://` server URLs are accepted; `http://` is rejected in setup with an
   explanation, since Basic auth over plain HTTP would expose the app password.
 
@@ -143,8 +162,9 @@ Push, per pending note, each in its own transaction:
 - `deleted`, remote id: conditional re-check first: `GET notes/{id}` with `If-None-Match` = stored
   etag. `304`: send `DELETE`, then remove the row. `200` (server changed): restore the server
   version locally as `void`, inform the user (spec FR-035). `404`: remove the row. If **VERIFY (c)**
-  shows `DELETE` honors `If-Match`, use that instead and drop the extra `GET`. The small race
-  between check and delete is documented and accepted.
+  shows that the server returns 412 for a stale `If-Match` on `DELETE`, send the header and drop
+  the extra `GET`. Otherwise a small race remains between the check and the delete; mitigation is
+  the server's trash bin where enabled (recorded in plan Complexity Tracking).
 - A failing note does not stop the others; its status stays pending.
 
 Pull:
@@ -225,7 +245,7 @@ Results and errors:
 | 6 | No usable device CA store | Setup always fails on HTTPS | Bundled CA file ships regardless; CA source shown in the test result |
 | 7 | vfat: weak locking, no atomic rename guarantees, power loss | DB corruption | `journal_mode=TRUNCATE`, `synchronous=FULL`, short transactions, integrity check at start with automatic backup copy of the DB before schema migrations |
 | 8 | Host lacks Qt `rcc`; SDK `rcc` unusable; SDK never relocated | Cannot build | Quickstart lists prerequisites (`qt6-base-dev-tools`, cmake, ninja or SDK's); core and tests build without Qt |
-| 9 | Server certificate expires or private CA | Sync refused | Clear message; local use continues; self-signed support deliberately deferred |
+| 9 | Server certificate expires or uses a private CA | Sync refused | Clear message; local use continues; private CAs and self-signed certificates are supported through `custom-ca.pem` (R-6) |
 | 10 | Large first pull (many notes) on slow Wi-Fi | Long sync, timeouts | Chunked listing if available; progress count in status; resumable (each note stored as it arrives) |
 | 11 | Title derivation mismatch between client and server | List shows one title, server another | Show server title once `void`; contract test against fixtures; derive locally only for pending notes |
 

@@ -20,7 +20,9 @@ delegates to the core. Used by the single `ApplicationWindow` (`qml/Main.qml`).
 | `categories` | list of {name,count} | for the view picker |
 | `notes` | model | rows: `localId`, `title`, `category`, `modified`, `favorite`, `pending`, `excerpt` |
 | `searchText` | string | substring filter on title and content |
-| `caSource` | string | `device` or `bundled`, shown in the connection test |
+| `caSource` | string | `device` or `bundled`, shown in the connection test and in Settings |
+| `customCaStatus` | string | `none`, `loaded` or `invalid`, shown in Settings |
+| `customCaCertificates` | int | number of certificates read from `custom-ca.pem` (0 unless `loaded`), shown in Settings |
 
 ## Invokables
 

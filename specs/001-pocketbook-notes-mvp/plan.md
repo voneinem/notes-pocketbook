@@ -60,18 +60,19 @@ locking); SDK `rcc` unusable (host `rcc` with `--no-zstd`)
 |---------------------|--------------|-------------|----------|
 | I. Test-First: tests written and failing before implementation | PASS | PASS | Core is host-testable; `tasks.md` must order each test task before its implementation task; quickstart lists the test commands |
 | II. Simplicity: no speculative abstractions; added complexity justified | PASS with justified items | PASS with justified items | Two items in Complexity Tracking (vendored SQLite, manual moc/rcc). Self-signed trust option and the GitHub Actions workflow are deliberately not built |
-| III. Security & Privacy: TLS verification always on; device CA store else bundled CA file; validated input; no secrets in repo | PASS | PASS | HTTPS-only URLs; `VERIFYPEER=1`/`VERIFYHOST=2`; CA selection order in research R-6; server JSON parsed defensively; logs exclude note content and password; password stored unencrypted on device is documented as a residual risk (the constitution requires collecting only needed data and keeping it off the repository, which this satisfies) |
+| III. Security & Privacy: TLS verification always on; device CA store else bundled CA file; validated input; no secrets in repo | PASS | PASS | HTTPS-only URLs; `VERIFYPEER=1`/`VERIFYHOST=2`; CA selection (device store, else bundled) plus optional user-supplied `custom-ca.pem`, research R-6; server JSON parsed defensively; logs exclude note content and password; password stored unencrypted on device is documented as a residual risk (the constitution requires collecting only needed data and keeping it off the repository, which this satisfies) |
 | IV. Integration tests at device boundaries (storage, sync, API formats) | PASS | PASS | Contract tests against API fixtures; store and sync integration tests with SQLite and a fake server; PocketBook-side boundary is the SQLite file layout and launcher/registration (checked in quickstart) |
 | V. Host-testable core: sync/API/storage without Qt UI or device; host build target | PASS | PASS | `notes_core` library has no Qt or InkView dependency; `TARGET_TYPE` host build produces `notes_core_tests` |
-| VI. No silent data loss: If-Match, 412 → both versions kept | PASS | PASS | Sync algorithm (research R-8) and data model state machine; conflict copy uploaded; local changes cleared only after server confirmation |
+| VI. No silent data loss: If-Match, 412 → both versions kept | PASS | PASS | Sync algorithm (research R-8) and data model state machine; `PUT` sends `If-Match`; `DELETE` is guarded by a conditional `GET` (or `If-Match` if the server enforces it), residual race recorded in Complexity Tracking; conflict copy uploaded; local changes cleared only after server confirmation |
 | Stack: C++17, Qt 6.8 Quick/QML, CMake, libcurl, SQLite | PASS | PASS | Technical Context |
 | SDK location only from `POCKETBOOK_SDK` / `-DSDK_PATH` | PASS | PASS | CMake fails with a clear error if neither is set for `TARGET_TYPE=ARM`; no default path, unlike InkFeed |
 | Both device and host build targets | PASS | PASS | Project Structure; quickstart |
 | Licensing: InkFeed (MIT) patterns attributed in `NOTICE`; notes-android reference-only; license chosen before first public push | PASS | PASS | Project license is MIT (`LICENSE` present); `NOTICE` created in the first implementation task; no notes-android code or text used (behavior from `docs/notes-android-features.md` only); README license statement is task T098 and must precede the first public push |
 
-No violations that block planning. The self-signed trust option mentioned in the plan input is
-**excluded** from this release because the spec's clarification (FR-003) forbids it; the TLS code
-keeps a single place where trust anchors are set so it can be added later by amendment.
+No violations that block planning. The in-app "trust self-signed certificate" option mentioned in
+the plan input is **excluded** from this release (spec FR-003). Private CAs and self-signed server
+certificates are supported instead by a user-supplied `custom-ca.pem` (spec FR-038, constitution
+Principle III): verification always stays on and no option trusts unverifiable certificates.
 
 ## Project Structure
 
@@ -108,7 +109,7 @@ core/                          # target notes_core (static lib, no Qt, no InkVie
 │   ├── sync_engine.h          # push-then-pull, conflicts, status
 │   ├── markdown.h             # block/span parser + task-item toggle (Qt-free)
 │   ├── title.h                # title derivation from first non-empty line
-│   ├── ca_selector.h          # chooses CA file (device store, else bundled)
+│   ├── ca_selector.h          # chooses CA file (device store, else bundled) + custom-ca.pem
 │   └── types.h                # Note, Account, SyncResult, ...
 └── src/*.cpp
 third_party/
@@ -151,4 +152,5 @@ for device packaging. `TARGET_TYPE=ARM` builds `notes_core`, `bridge`, and the `
 | Violation | Why Needed | Simpler Alternative Rejected Because |
 |-----------|------------|-------------------------------------|
 | Vendored SQLite amalgamation instead of the SDK's `libsqlite3` | Host tests and the device must run the same SQLite version and compile options; avoids depending on a distro `libsqlite3` for the host build; stack decision given in the plan input | Using the SDK's shared 3.48.0 only on device and the system library on host risks behavior drift between test and device. Cost is small (one file, pinned version, public domain) |
+| DELETE uses a conditional `GET` followed by `DELETE` (two requests) instead of a single `DELETE` with `If-Match` | The server may not honor `If-Match` on `DELETE` (verified by the T022 probe); constitution Principle VI requires the conditional check. Residual risk: a note changed between the `GET` and the `DELETE` is deleted anyway | An unconditional `DELETE` could remove a note edited elsewhere. Mitigation for the residual race: the Nextcloud server's trash bin (where enabled) keeps deleted notes recoverable; if the probe shows a stale `If-Match` on `DELETE` returns 412, the header is sent and this fallback is dropped |
 | Manual moc/rcc steps and a hand-written launcher instead of `qt_add_executable` / AUTOMOC | The SDK Qt cannot run its own `rcc` (needs ICU 76); cross-building with CMake's Qt helpers was never verified against this SDK (`docs/pocketbook-sdk-analysis.md` §3); InkFeed proves the manual approach works | `AUTOMOC`/`qt_add_*` would need a working host Qt toolchain config for the SDK; the manual pattern is ~30 lines and already proven on this device class |

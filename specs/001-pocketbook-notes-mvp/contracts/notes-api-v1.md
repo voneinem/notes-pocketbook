@@ -26,7 +26,7 @@ Behavior reference: `docs/notes-android-features.md` §5-6 and the public Notes 
 | Get one | `GET notes/{id}` (+ `If-None-Match: <etag>` for the delete re-check) | 200 + note; 304 unchanged | 404 → note gone |
 | Create | `POST notes` body `{content, category, favorite, modified}` | 200 + note with `id`, `etag`, `title`, `modified` | 4xx/5xx → note stays `edited` |
 | Update | `PUT notes/{id}` + `If-Match: "<etag>"`, body as create | 200 + note | **412** → conflict (client fetches server version, see sync spec); **404** → server deleted it: client re-creates with POST; other → stay `edited` |
-| Delete | `DELETE notes/{id}` (+ `If-Match: "<etag>"` if the server honors it, **VERIFY**) | 200 | 404 → treated as success; 412 → conflict (restore server version) |
+| Delete | First `GET notes/{id}` with `If-None-Match: <stored etag>`; only on `304` then `DELETE notes/{id}`. If the server is verified to return 412 for a stale `If-Match` on `DELETE` (**VERIFY**), send `DELETE` with `If-Match` and skip the `GET` | 200 | GET `200` (changed) → conflict, no `DELETE` sent, server version restored; GET/DELETE `404` → treated as already gone; `DELETE` 412 → conflict |
 
 Notes on the ETag format: the client stores the value exactly as returned (including quotes if the
 server sends them) and sends it back unchanged in `If-Match` / `If-None-Match`.

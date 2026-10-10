@@ -26,6 +26,8 @@ Response perform(const Request&)      // Request{method,url,headers,body,timeout
 
 ```text
 CaSelection select_ca_file(const std::vector<std::string>& device_candidates, const std::string& bundled_path)
+EffectiveCa build_effective_ca(const std::string& base_ca_path, const std::string& custom_ca_path, const std::string& out_path)
+// -> { path, custom_status: None|Loaded|Invalid, custom_cert_count }; base + custom-ca.pem concatenated; verification is never disabled
 // -> { path, source: Device|Bundled }, never "none"
 ```
 - A candidate is usable if it exists, is readable, is non-empty and contains a PEM certificate marker.
