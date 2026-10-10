@@ -85,8 +85,9 @@ writer win and discard the other edit; for a notes app that is unacceptable.
 - notes-android (GPL-3.0) is reference-only: no code, strings, comments, or documentation text
   from it MAY be copied. Behavior MAY be reimplemented from the public Nextcloud Notes API
   specification and from behavior-only descriptions such as `docs/notes-android-features.md`.
-- The project license MUST be chosen and documented (a `LICENSE` file and a README statement)
-  before the first public push. TODO(PROJECT_LICENSE): license not yet chosen.
+- The project license is the MIT License. The `LICENSE` file at the repository root states
+  "Copyright (c) 2026 Volker von Einem". The README MUST state the license before the first
+  public push.
 
 ## Development Workflow
 
@@ -110,4 +111,4 @@ guidance; PATCH for clarifications and wording fixes.
 Compliance is reviewed in every pull request and in each plan's Constitution Check. Unjustified
 violations block the merge.
 
-**Version**: 1.1.0 | **Ratified**: 2026-10-10 | **Last Amended**: 2026-10-10
+**Version**: 1.1.1 | **Ratified**: 2026-10-10 | **Last Amended**: 2026-10-10
