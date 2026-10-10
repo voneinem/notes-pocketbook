@@ -1,6 +1,6 @@
 # InkFeed analysis (PocketBook InkPad One, Qt Quick app)
 
-Source analysed (read-only): `<projects>/InkFeed` (git describe at analysis time: `v1.0.0-2-g901306f`).
+Source analysed (read-only): `<InkFeed checkout>` (git describe at analysis time: `v1.0.0-2-g901306f`).
 Nothing was built or executed. Everything below is derived from reading files, plus a few read-only `ls`/`file`/`readelf`/`unzip -l` checks. Statements that could not be verified are marked **(unverified)**.
 
 ## 1. Overview
@@ -77,7 +77,7 @@ The toolchain is set inline before `project()`, guarded by `if(TARGET_TYPE STREQ
 
 Checked with `command -v` / `ls`:
 
-- The real SDK is at `<projects>/pocketbook-sdk-6.11/arm-buildroot-linux-gnueabihf_sdk-buildroot` (no `sdk_extracted/` level; `ls pocketbook-sdk-6.11/sdk_extracted` fails). So the default `SDK_PATH` does **not** resolve here and **`-DSDK_PATH` must be passed**.
+- The real SDK is at `$POCKETBOOK_SDK` (no `sdk_extracted/` level; `ls pocketbook-sdk-6.11/sdk_extracted` fails). So the default `SDK_PATH` does **not** resolve here and **`-DSDK_PATH` must be passed**.
 - `gcc`/`g++`/`make`/`zip` are installed on the host. `/usr/bin/cmake` exists (version 4.2.3; an earlier `command -v` check wrongly reported it missing). `/usr/bin/ninja` also exists. Note CMake 4.x removed compatibility with `cmake_minimum_required` below 3.5; this project requires 3.16, so that is fine.
 - **No host `rcc` was found** in the paths CMake searches: `/usr/lib/qt6/libexec` contains only `QtWebEngineProcess` and `webenginedriver` (`/usr/lib/qt6/bin` and `/usr/lib/x86_64-linux-gnu/qt6/libexec` do not exist). A full-disk `find / -name rcc -type f` found only the SDK's `local/qt6/libexec/rcc` and a snap copy (`/snap/kf6-core24/64/usr/lib/qt6/libexec/rcc`, outside the searched paths). Qt 6.10.2 runtime libs are present in `/usr/lib/x86_64-linux-gnu`, but no Qt dev tools. Without an rcc in those paths, `cmake` configure fails at `find_program(HOST_RCC ... REQUIRED)`.
 - The SDK ships its own `local/qt6/libexec/rcc`. Using it was the author's rejected path (ICU); whether it actually runs here was **not tested**.
@@ -85,7 +85,7 @@ Checked with `command -v` / `ls`:
 
 ### 3.5 Stale `build_arm/`
 
-`<projects>/InkFeed/build_arm/` is root-owned and was generated in a container: `CMakeCache.txt` says "For build in directory: /src/build_arm", `CMAKE_HOME_DIRECTORY=/src`, generator Ninja, `SDK_PATH:UNINITIALIZED=/opt/pocketbook-sdk/sdk_extracted/arm-buildroot-linux-gnueabihf_sdk-buildroot`, `TARGET_TYPE=ARM`, `CMAKE_BUILD_TYPE=Release`, CMake 3.28.3. It contains the finished `inkfeed.app` (1,792,484 bytes), identical in size to `applications/inkfeed.bin` in `dist/inkfeed-inkpad-one-1.0.0-2-g901306f.zip`. It must not be reused as a build dir (wrong source dir and SDK path, root-owned); configure into a fresh directory.
+`<InkFeed checkout>/build_arm/` is root-owned and was generated in a container: `CMakeCache.txt` says "For build in directory: /src/build_arm", `CMAKE_HOME_DIRECTORY=/src`, generator Ninja, `SDK_PATH:UNINITIALIZED=/opt/pocketbook-sdk/sdk_extracted/arm-buildroot-linux-gnueabihf_sdk-buildroot`, `TARGET_TYPE=ARM`, `CMAKE_BUILD_TYPE=Release`, CMake 3.28.3. It contains the finished `inkfeed.app` (1,792,484 bytes), identical in size to `applications/inkfeed.bin` in `dist/inkfeed-inkpad-one-1.0.0-2-g901306f.zip`. It must not be reused as a build dir (wrong source dir and SDK path, root-owned); configure into a fresh directory.
 
 ## 4. Application architecture
 
@@ -231,16 +231,16 @@ CI: `.github/workflows/inkpad-one.yml` downloads the SDK from a `POCKETBOOK_SDK_
 
 - Host: `cmake` >= 3.16 (3.28.3 was used for the existing cache; 4.2.3 is installed here), a build tool (Ninja or Make; the stale cache used Ninja), `zip`, `git` (optional; without git, version falls back to `0.0.0`/the argument).
 - Host Qt `rcc` reachable at one of `/usr/lib/qt6/libexec`, `/usr/lib/x86_64-linux-gnu/qt6/libexec`, `/usr/lib/qt6/bin` (on Debian/Ubuntu from the package `qt6-base-dev-tools`, as installed by `qt6-base-dev`; package name is from memory, **unverified**). On this machine no rcc exists in those paths (section 3.4); cmake 4.2.3 and ninja are present. Install `qt6-base-dev-tools` to provide `rcc`.
-- The PocketBook SDK 6.11 (RK3566) extracted. Here: `<projects>/pocketbook-sdk-6.11/arm-buildroot-linux-gnueabihf_sdk-buildroot`. The SDK's x86-64 host tools (cross `gcc`, `moc`) must be runnable on this host.
+- The PocketBook SDK 6.11 (RK3566) extracted. Here: `$POCKETBOOK_SDK`. The SDK's x86-64 host tools (cross `gcc`, `moc`) must be runnable on this host.
 - The SDK may need its `relocate-sdk.sh` to have been run (it exists in the SDK root); whether it already was is **unverified**. The compiler was not executed.
 
 ### 9.2 Configure, build, package
 
-Run from `<projects>/InkFeed`, using a fresh build dir (not the stale `build_arm`). Since `InkFeed` is meant to be read-only for this analysis, build out-of-tree, e.g. in a scratch dir:
+Run from `<InkFeed checkout>`, using a fresh build dir (not the stale `build_arm`). Since `InkFeed` is meant to be read-only for this analysis, build out-of-tree, e.g. in a scratch dir:
 
 ```bash
-SDK=<projects>/pocketbook-sdk-6.11/arm-buildroot-linux-gnueabihf_sdk-buildroot
-SRC=<projects>/InkFeed
+SDK="$POCKETBOOK_SDK"
+SRC=/path/to/InkFeed
 BLD=/path/to/new/build_arm            # must be empty / new
 
 # configure (TARGET_TYPE=ARM selects the toolchain block; SDK_PATH override is required here)

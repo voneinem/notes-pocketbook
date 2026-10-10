@@ -3,7 +3,7 @@
 Analysis date: 2026-10-10. SDK root (read-only, nothing was modified):
 
 ```
-<projects>/pocketbook-sdk-6.11/arm-buildroot-linux-gnueabihf_sdk-buildroot
+$POCKETBOOK_SDK
 ```
 
 Below, `$SDK` means that directory and `$SYSROOT` means `$SDK/arm-buildroot-linux-gnueabihf/sysroot`.
@@ -121,7 +121,7 @@ Versions are from the `.pc` files or headers where marked.
 
 - `$SDK/usr` is a **0-byte regular file** (mtime 2026-10-10 08:43), and `$SDK/workdir/system` is also a 0-byte regular file with the same timestamp. In a Buildroot SDK `usr` is normally a symlink (typically to `.`), and InkFeed's CI comment says 7-Zip refuses the archive's absolute/parent symlinks (naming `udevadm` and `workdir/system`). **[INFERRED]** these are placeholders left by an extractor that could not create the symlinks. Consequence: the `.pc` files' `/BUILD/.../usr/arm-buildroot-linux-gnueabihf/sysroot/...` prefix cannot resolve even after relocation. This does not matter for InkFeed (it does not use pkg-config on ARM) but would matter for pkg-config based builds. Other dangling/placeholder symlinks were not enumerated **[UNVERIFIED]**.
 
-## 7. Compatibility with InkFeed (<projects>/InkFeed, read-only)
+## 7. Compatibility with InkFeed (<InkFeed checkout>, read-only)
 
 ### 7.1 Version/feature compatibility
 
@@ -140,11 +140,11 @@ Conclusion: the SDK matches what InkFeed's ARM build expects (compiler prefix, s
 
 ### 7.2 Every SDK path reference in InkFeed
 
-Real SDK layout: `<projects>/pocketbook-sdk-6.11/arm-buildroot-linux-gnueabihf_sdk-buildroot` (no `sdk_extracted/` level).
+Real SDK layout: `$POCKETBOOK_SDK` (no `sdk_extracted/` level).
 
 | File:line | Current | Problem | Suggested replacement |
 |---|---|---|---|
-| `CMakeLists.txt:11` | default `SDK_PATH` = `${CMAKE_SOURCE_DIR}/../pocketbook-sdk-6.11/sdk_extracted/arm-buildroot-linux-gnueabihf_sdk-buildroot` | Extra `sdk_extracted/` level does not exist; the default resolves to `<projects>/pocketbook-sdk-6.11/sdk_extracted/...` which is absent, so `find_program`/compiler setup fails unless `-DSDK_PATH` is given | `"${CMAKE_SOURCE_DIR}/../pocketbook-sdk-6.11/arm-buildroot-linux-gnueabihf_sdk-buildroot"` |
+| `CMakeLists.txt:11` | default `SDK_PATH` = `${CMAKE_SOURCE_DIR}/../pocketbook-sdk-6.11/sdk_extracted/arm-buildroot-linux-gnueabihf_sdk-buildroot` | Extra `sdk_extracted/` level does not exist; the default resolves to `<SDK parent directory>/pocketbook-sdk-6.11/sdk_extracted/...` which is absent, so `find_program`/compiler setup fails unless `-DSDK_PATH` is given | `"${CMAKE_SOURCE_DIR}/../pocketbook-sdk-6.11/arm-buildroot-linux-gnueabihf_sdk-buildroot"` |
 | `CMakeLists.txt:14,19,20,97,100,111,125` | derived from `SDK_PATH` | no change needed once `:11` is fixed | - |
 | `CMakeLists.txt:93,99-103` | comments ("Qt 6.8", SDK moc/rcc) | accurate (SDK Qt is 6.8.2) | - |
 | `README.md:57-66` | prose: "SDK 6.11", default `../pocketbook-sdk-6.11/…/arm-buildroot-linux-gnueabihf_sdk-buildroot`, `-DSDK_PATH=…` | The `…` hides the wrong level; text is correct in spirit | Keep, optionally spell out `../pocketbook-sdk-6.11/arm-buildroot-linux-gnueabihf_sdk-buildroot`; note host `qt6-base-dev-tools` is required for `rcc`; note `cmake` and `ninja` can be taken from `$SDK/bin` |
@@ -157,7 +157,7 @@ Real SDK layout: `<projects>/pocketbook-sdk-6.11/arm-buildroot-linux-gnueabihf_s
 | `.github/workflows/inkpad-one.yml:49-55` | `find "$HOME/pbsdk" -maxdepth 5 -type d -name '*_sdk-buildroot'` then `SDK_PATH=$root` | depth-search, tolerant of either layout (works with or without `sdk_extracted/`) | - |
 | `.github/workflows/inkpad-one.yml:58-60` | `-DSDK_PATH="$SDK_PATH"` | ok | - |
 | `.github/workflows/release.yml:56,65-70,72-80,86-90` | same pattern as above | ok | - |
-| `build_arm/CMakeCache.txt:18,21,29,33,52,56,101,127,130,133,160,163,213,228,234` | absolute `/opt/pocketbook-sdk/sdk_extracted/arm-buildroot-linux-gnueabihf_sdk-buildroot/...` (CMAKE_ADDR2LINE, AR, *_COMPILER_AR/RANLIB, LINKER, NM, OBJCOPY, OBJDUMP, RANLIB, READELF, STRIP, HOST_MOC, SDK_PATH); also `CMAKE_HOME_DIRECTORY=/src`, `HOST_RCC=/usr/lib/qt6/libexec/rcc` | Stale: the cache was generated in a container. `/opt/pocketbook-sdk` and (on this host) `/usr/lib/qt6/libexec/rcc` do not exist. 25 more lines in `build_arm/build.ninja` and the files under `build_arm/CMakeFiles/` (e.g. `3.28.3/CMake{C,CXX}Compiler.cmake`, `rules.ninja`, `CMakeConfigureLog.yaml`) embed the same prefix | Delete and re-create `build_arm/` (it is gitignored: `git check-ignore build_arm` matches), then `cmake -S . -B build_arm -DTARGET_TYPE=ARM -DCMAKE_BUILD_TYPE=Release -DSDK_PATH=<projects>/pocketbook-sdk-6.11/arm-buildroot-linux-gnueabihf_sdk-buildroot`. Do not edit the cache in place |
+| `build_arm/CMakeCache.txt:18,21,29,33,52,56,101,127,130,133,160,163,213,228,234` | absolute `/opt/pocketbook-sdk/sdk_extracted/arm-buildroot-linux-gnueabihf_sdk-buildroot/...` (CMAKE_ADDR2LINE, AR, *_COMPILER_AR/RANLIB, LINKER, NM, OBJCOPY, OBJDUMP, RANLIB, READELF, STRIP, HOST_MOC, SDK_PATH); also `CMAKE_HOME_DIRECTORY=/src`, `HOST_RCC=/usr/lib/qt6/libexec/rcc` | Stale: the cache was generated in a container. `/opt/pocketbook-sdk` and (on this host) `/usr/lib/qt6/libexec/rcc` do not exist. 25 more lines in `build_arm/build.ninja` and the files under `build_arm/CMakeFiles/` (e.g. `3.28.3/CMake{C,CXX}Compiler.cmake`, `rules.ninja`, `CMakeConfigureLog.yaml`) embed the same prefix | Delete and re-create `build_arm/` (it is gitignored: `git check-ignore build_arm` matches), then `cmake -S . -B build_arm -DTARGET_TYPE=ARM -DCMAKE_BUILD_TYPE=Release -DSDK_PATH=$POCKETBOOK_SDK`. Do not edit the cache in place |
 | `scripts/package-inkpad-one.sh`, `docs/install.md`, `platform/pocketbook/inkfeed.app` | no SDK path | checked via grep | - |
 
 No other SDK path references were found in InkFeed (`grep -rnI -i 'sdk|buildroot|sysroot|libinkview|/opt/'` excluding `.git` and `build_arm`; the only other hits were Windows SDK comments in `lib/sqlite3.c` and an unrelated comment in `include/i18n.h:16`).

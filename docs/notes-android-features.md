@@ -5,7 +5,7 @@
 > documentation text or UI strings were copied. Endpoint paths and JSON field names of the public
 > Nextcloud Notes / OCS APIs are mentioned as facts about those public APIs.
 >
-> Analyzed checkout: `<projects>/notes-android` (read-only), HEAD `f3eb0a1a`,
+> Analyzed checkout: `<notes-android checkout>` (read-only), HEAD `f3eb0a1a`,
 > Room DB schema version 30, minSdk 28, targetSdk 36. Code root:
 > `app/src/main/java/it/niedermann/owncloud/notes/`. Statements marked **(unverified)** or **(inferred)**
 > were not confirmed directly in the client code.
