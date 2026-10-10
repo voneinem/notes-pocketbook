@@ -33,7 +33,7 @@ server sends them) and sends it back unchanged in `If-Match` / `If-None-Match`.
 
 ## Client expectations (tested with fixtures)
 
-1. Title is never sent; the response's title is ignored (the displayed title is always derived locally from the content).
+1. Title is never sent; the response's title (the note's file name) is stored and displayed for notes in sync; notes with local changes show the first line of their text until the push is confirmed.
 2. A `412` on `PUT` triggers exactly: one `GET notes/{id}`, replacement of the original with the
    server version, creation of one conflict copy, one `POST` for the copy.
 3. `304` on list leaves all notes untouched and stores nothing new except the sync time.

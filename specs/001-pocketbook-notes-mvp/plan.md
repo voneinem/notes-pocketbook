@@ -9,8 +9,8 @@
 A Nextcloud Notes client for the PocketBook InkPad One. All sync, API and storage logic lives in a
 Qt-free C++17 core library that is unit-tested on the desktop host with a mocked HTTP layer. A thin
 Qt bridge exposes it to a single-window QML UI that follows InkFeed's e-ink patterns (no
-transitions, flat high-contrast controls, rotation and devicePixelRatio compensation, system
-keyboard). The client speaks Nextcloud Notes API v1 over verified HTTPS with an app password,
+transitions, flat high-contrast controls, system rotation (SetOrientation + platform screen updateGeometry) and
+devicePixelRatio compensation, system keyboard). The client speaks Nextcloud Notes API v1 over verified HTTPS with an app password,
 implements push-then-pull sync, and detects conflicts with `If-Match` (HTTP 412), keeping both
 versions. The build follows InkFeed's `TARGET_TYPE=ARM` / host split with manual moc/rcc, but takes
 the SDK location only from `POCKETBOOK_SDK` / `-DSDK_PATH`. Packaging is a zip with a launcher
@@ -122,7 +122,7 @@ bridge/                        # Qt-dependent glue (moc'd)
 app/
 └── main.cpp                   # QGuiApplication, data dir, rotation poll, InkView glue (device only)
 qml/
-├── Main.qml                   # ApplicationWindow + StackView (no transitions), rotated stage
+├── Main.qml                   # ApplicationWindow + StackView (no transitions), dpr-scaled stage
 ├── InkButton.qml              # flat button (pattern from InkFeed)
 └── pages/*.qml                # Setup, NoteList, Reader, Editor, Settings (only if Main.qml grows too large)
 res/
@@ -131,12 +131,17 @@ platform/pocketbook/
 └── pbnotes.app                # launcher shell script (installed as the .app, ELF is pbnotes.bin)
 scripts/
 ├── package-device.sh          # builds the install zip
-└── probe-device.sh            # run on the device: CA store, Qt version, Wi-Fi API (research R-6/R-2)
+├── probe-device.sh            # run on the device: CA store, Qt version, storage (research R-2/R-6)
+├── make-icons.sh              # generates the launcher icons (res/icons/*.bmp)
+├── check-constitution.sh      # TLS bypasses, SDK paths, Qt in core, logging of personal data, local paths
+├── check-fixtures.sh          # fixtures must be anonymized
+└── pre-merge.sh               # local merge gate: build, tests, secret scan
 tests/
 ├── unit/                      # title, markdown, store, ca_selector, sync pieces
 ├── contract/                  # API client against fixtures
-├── integration/               # sync engine + store + fake server
-└── fixtures/                  # anonymized API v1 JSON, error bodies
+├── integration/               # sync engine + store + fake server, TLS tests with local HTTPS servers
+├── support/                   # test_support.h, fake_transport.h, fake_notes_server.h, tls_test_server.h, tmp_dir.h
+└── fixtures/                  # anonymized API v1 JSON, error bodies (README: anonymization procedure)
 docs/                          # analyses (existing) + install guide
 NOTICE                         # InkFeed (MIT) and cacert.pem (MPL-2.0) attributions
 README.md                      # build, install (view.json registration), password-storage note

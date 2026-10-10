@@ -1,0 +1,7 @@
+SQLite amalgamation 3.54.0 (public domain)
+Source: https://www.sqlite.org/2026/sqlite-amalgamation-3540000.zip
+Archive SHA3-256 (as published by sqlite.org): 7b670a62fdfbd672b75fef004cb703c8a3e87d3a5cc7d675b4a08337004a2d93
+Archive SHA-256: 68e913b0fe8ec6b4e5f391c594a28872884e80d6cd042a1e50c957be46b5aa4d
+sqlite3.c SHA-256: 2da161e310ef0aba3465f22a4d12b8a43723236f0942fa76e8aac523c3317243
+sqlite3.h SHA-256: cd20a2877bc82b94e36c1093b727dd87cfa3c1d581aac6e240925535cbd90166
+Retrieved: 2026-10-10

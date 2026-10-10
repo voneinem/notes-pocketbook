@@ -29,7 +29,7 @@ transactions. Before any schema migration the file is copied to `pbnotes.db.bak`
 | local_id | integer PK | autoincrement, never reused |
 | remote_id | integer, nullable, unique | null = never uploaded |
 | status | text | `void`, `edited`, `deleted` (see state machine) |
-| title | text | first non-empty line of `content`, trimmed; recomputed whenever `content` changes (local save or pull); a title returned by the server is ignored and never stored or shown |
+| title | text | display title. For a note in sync (`void`): the title the server reports (its file name, as the web and Android apps show it), or the first non-empty line of `content` when the server reports none. For a note with local changes: the first non-empty line of `content`, recomputed on every save. Set on every pull and when a push is confirmed. A note with neither text nor title is shown as "(empty note)". `settings.titles_from_server` marks that the stored titles come from a complete pull; older databases get one full pull to refresh them |
 | content | text | full note text (UTF-8), includes the title line |
 | category | text | empty string = uncategorized; `/` is allowed and shown as typed (flat list); validated, see below |
 | favorite | integer | 0/1 |
@@ -99,7 +99,7 @@ Rules:
 - If the user changes a note while its push is in flight, the push result is stored but the note
   stays `edited` when content, category or favorite differ from what was sent.
 - A conflict is resolved in ONE transaction: the conflict copy is inserted first (and verified to
-  equal the local text byte-for-byte) and only then is the original replaced by the server version.
+  equal the local text apart from the conflict marker on its title line) and only then is the original replaced by the server version.
   A failure rolls back both; the local text is never held in zero rows. If the local and server
   versions are identical in content, category and favorite, no copy is created: the original just
   becomes `void` with the server's etag and modified time, and no conflict is counted.

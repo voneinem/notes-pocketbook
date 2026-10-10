@@ -1,0 +1,1 @@
+{"ocs":{"meta":{"status":"ok","statuscode":200,"message":"OK"},"data":{"version":{"major":20,"minor":0,"micro":14,"string":"20.0.14"},"capabilities":{"notes":{"api_version":["0.2"],"version":"3.8.0"}}}}}

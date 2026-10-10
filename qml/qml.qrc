@@ -1,0 +1,14 @@
+<RCC>
+    <qresource prefix="/qml">
+        <file>Main.qml</file>
+        <file>InkButton.qml</file>
+        <file>PageButtons.qml</file>
+        <file>ConfirmDialog.qml</file>
+        <file>ChoiceDialog.qml</file>
+        <file>pages/SetupPage.qml</file>
+        <file>pages/NoteListPage.qml</file>
+        <file>pages/ReaderPage.qml</file>
+        <file>pages/EditorPage.qml</file>
+        <file>pages/SettingsPage.qml</file>
+    </qresource>
+</RCC>

@@ -1,0 +1,18 @@
+# Build trees
+build/
+build-*/
+dist/
+
+# Local runtime data of the desktop build
+pbnotes-data/
+
+# Database backups (may contain the account password)
+*.bak
+
+# Editor / OS noise
+.idea/
+.vscode/
+*.swp
+*.tmp
+.DS_Store
+Thumbs.db

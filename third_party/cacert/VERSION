@@ -1,0 +1,6 @@
+Mozilla CA certificate bundle as extracted by curl (MPL-2.0)
+Source: https://curl.se/ca/cacert.pem
+Bundle date (per file header): Fri Sep 25 03:12:01 2026 GMT
+SHA-256 (as published by curl.se): a41b5d356aea97a529fe27e0f7316d2f9d946d75927476cf9cf1b90637d00505
+Retrieved: 2026-10-10
+Refresh: download the file and its .sha256 from curl.se, verify, replace, update this file and NOTICE

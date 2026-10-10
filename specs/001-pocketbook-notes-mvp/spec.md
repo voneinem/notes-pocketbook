@@ -28,8 +28,7 @@
   Settings shows whether a custom CA is loaded. (This refines the self-signed answer above: there
   is still no in-app option to accept an unverifiable certificate.)
 - Q: How are the displayed title, category characters, identical edits on both sides, and a lost
-  create confirmation handled? → A: (decided 2026-10-10) The displayed title is always derived
-  from the text on the device; a category may contain `/` (shown flat) but not control characters,
+  create confirmation handled? → A: (decided 2026-10-10) The displayed title is the server's title for notes in sync and the first line of the text for notes with local changes (changed 2026-10-10 after device testing: titles differ from the server's once notes are renamed or cleaned up there); a category may contain `/` (shown flat) but not control characters,
   leading or trailing spaces, or more than 255 characters; identical text on both sides creates no
   conflict copy; a note can be duplicated only if the server accepted a new note but the
   confirmation never reached the device (nothing is lost).
@@ -305,8 +304,11 @@ expected notes each time.
 - **FR-017**: Users MUST be able to delete a note, and the system MUST ask for confirmation first.
 - **FR-018**: Users MUST be able to set or change a note's category and toggle its favorite
   marker, with the change taking effect immediately.
-- **FR-019**: A note's title MUST be the first non-empty line of its text and MUST update
-  whenever that line changes. The title shown in the app is always derived from the text this way, including after a sync (a title assigned by the server is never displayed); the editor has no separate title field.
+- **FR-019**: A note that has local changes MUST show the first non-empty line of its text as its
+  title and MUST update it whenever that line changes. A note that is in sync with the server MUST
+  show the title the server reports for it (the title the web and Android apps show); if the server
+  reports none, or the note has no text and no server title, the first line (or "(empty note)")
+  is shown. The editor has no separate title field and the app never sends a title.
 - **FR-020**: The system MUST NOT store a new note that is empty or whitespace-only.
 
 **Offline behavior**
@@ -416,7 +418,7 @@ expected notes each time.
   certificate in the app's data folder; there is no in-app option to accept an unverifiable
   certificate. How users copy the file onto the device is to be confirmed and documented in the
   install guide.
-- The note title is the first non-empty line of the text, matching how the server names notes;
+- The note title is normally the first non-empty line of the text, matching how the server names notes; for notes in sync the title the server reports is shown (it can differ after renames);
   there is no separate title field in the editor (confirmed in clarification).
 - A "conflict" is defined as a note changed on the device and also changed on the server since the
   device last synchronized it. The server's version stays as the original note and the device's

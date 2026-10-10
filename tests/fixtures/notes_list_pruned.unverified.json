@@ -1,0 +1,5 @@
+[
+  {"id":2},
+  {"id":3,"etag":"e3000002","readonly":false,"title":"Ideas","content":"Ideas\nA note that was edited on the server.\n","category":"","favorite":false,"modified":1700000500},
+  {"id":4,"etag":"e4000001","readonly":false,"title":"New on server","content":"New on server\nCreated elsewhere.\n","category":"Work","favorite":true,"modified":1700000600}
+]

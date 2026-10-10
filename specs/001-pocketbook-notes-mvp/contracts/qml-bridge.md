@@ -8,7 +8,7 @@ delegates to the core. Used by the single `ApplicationWindow` (`qml/Main.qml`).
 | Name | Type | Meaning |
 |------|------|---------|
 | `configured` | bool | an account exists |
-| `uiRotation` | int | 0/90/180/270, from the G-sensor poll or the rotation setting |
+| `orientation` | int | InkView orientation 0..3 currently applied (informational; the system and Qt rotate the window, the UI does not rotate itself) |
 | `fontPx` | int | reader font pixel size for the chosen small/medium/large |
 | `fontSize` | string | `small`/`medium`/`large` |
 | `syncRunning` | bool | a sync is in progress |
@@ -35,7 +35,7 @@ delegates to the core. Used by the single `ApplicationWindow` (`qml/Main.qml`).
 | `setView(view)`, `setSortOrder(o)`, `setSearch(text)` | list state |
 | `openNote(localId)` → blocks | model of rendered blocks for the reader (`markdownBlocks`) |
 | `toggleTask(localId, lineIndex)` | flips a checkbox, saves as a normal edit |
-| `loadForEdit(localId)` → string | plain text for the editor |
+| `loadForEdit(localId)` → map | `{text, category, favorite}` for the editor (empty map if unknown) |
 | `saveNote(localId, text, category, favorite)` → localId | explicit save; `-1` for a new note; empty new notes are rejected |
 | `deleteNote(localId)` | after UI confirmation |
 | `setCategory(localId, name)`, `toggleFavorite(localId)` | normal local edits |

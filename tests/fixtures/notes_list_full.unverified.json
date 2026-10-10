@@ -1,0 +1,5 @@
+[
+  {"id":1,"etag":"e1000001","readonly":false,"title":"Shopping list","content":"Shopping list\n- [ ] milk\n- [x] bread\n","category":"Home","favorite":true,"modified":1700000100},
+  {"id":2,"etag":"e2000001","readonly":false,"title":"Meeting notes","content":"# Meeting notes\n\nDiscuss **budget** and *timeline*.\n","category":"Work","favorite":false,"modified":1700000200},
+  {"id":3,"etag":"e3000001","readonly":false,"title":"Ideas","content":"Ideas\nA note without a category.\n","category":"","favorite":false,"modified":1700000300}
+]

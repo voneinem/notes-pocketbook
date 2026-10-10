@@ -1,0 +1,1 @@
+{"ocs":{"meta":{"status":"ok","statuscode":200,"message":"OK"},"data":{"version":{"major":31,"minor":0,"micro":5,"string":"31.0.5"},"capabilities":{"files":{"bigfilechunking":true},"theming":{"color":"#0082c9"}}}}}

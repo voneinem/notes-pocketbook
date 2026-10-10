@@ -88,9 +88,9 @@ server check). Nothing here required a new `NEEDS CLARIFICATION` in the plan.
 - **Rationale**: Constitution III says device store when usable, else bundled CA file. InkFeed
   found no CA bundle and disabled verification; we must not copy that. The SDK sysroot has an empty
   `etc/ssl/certs`, and OpenSSL's default dir is `/etc/ssl`, so the device's real content is unknown.
-- **VERIFY (device)**: `probe-device.sh` lists `/etc/ssl` and `/ebrmain` for CA files and tests a
-  real handshake against a known site with the candidate file. Outcome decides if the bundled
-  file is always needed; shipping it regardless is cheap (~220 KB), so the plan ships it.
+- **Device result (2026-10-10)**: the device's own CA store is usable: the app selected
+  `source=device` on every start and the TLS connection to a real hosted Nextcloud server was
+  verified with it, with no custom CA. The bundled file stays as the fallback for other firmware.
 - **Bundled file**: Mozilla bundle from curl.se, pinned by date and SHA-256, MPL-2.0, attributed in
   `NOTICE`; refreshed by a documented manual step, with the age shown in the About text.
 - **Custom CA (user-supplied)**: if `custom-ca.pem` exists in the app data directory
@@ -111,7 +111,8 @@ server check). Nothing here required a new `NEEDS CLARIFICATION` in the plan.
   is the chosen base plus `custom-ca.pem`.
 - **VERIFY (device)**: how a user copies `custom-ca.pem` onto the device (USB mass storage to
   `system/pbnotes/`, file-name case on FAT, visibility of the `system` folder) is checked by task
-  T109 and documented in `INSTALL.md`.
+  T109 and documented in `INSTALL.md`. Seen so far: the `system/pbnotes/` folder (database, logs)
+  is visible and writable over USB mass storage; placing a real `custom-ca.pem` has not been tried.
 - **Self-signed trust option**: the in-app "trust anything" or per-server trust toggle is excluded
   from this release (spec FR-003); `custom-ca.pem` is the supported way.
 - **Also**: only `https://` server URLs are accepted; `http://` is rejected in setup with an
@@ -130,7 +131,7 @@ server check). Nothing here required a new `NEEDS CLARIFICATION` in the plan.
   `DELETE notes/{id}`; read one `GET notes/{id}`. Timestamps are epoch seconds.
 - **Request bodies**: content, category, favorite, modified (seconds). The title is **not** sent;
   the server derives it from the first line (spec FR-019). After each push the returned note
-  replaces the local etag and modified time; the returned title is ignored, because the displayed title is always derived locally from the content (spec FR-019).
+  replaces the local etag and modified time; the returned title is stored as the display title of the now-synced note (spec FR-019); the app never sends a title.
 - **VERIFY (live server, contract test fixtures)**: (a) the server accepts `If-Match` on `PUT`
   and returns `412` with the current ETag semantics; (b) how the server derives the title from the
   first line (markdown `#` stripping, characters replaced) so the local preview title matches;
@@ -156,7 +157,7 @@ Push, per pending note, each in its own transaction:
     change; if it fails the note stays `edited` and the next run retries). Then ONE database
     transaction: read the current local row, insert the conflict copy first (local text, category
     and favorite, title with conflict marker and date, status `edited`, no remote id), verify the
-    copy's content equals the local content byte-for-byte, and only then replace the original with
+    copy's content equals the local content apart from the conflict marker on its title line, and only then replace the original with
     the server version (`void`). Any failure rolls the whole transaction back, so the local text is
     never in zero rows. After the commit the copy is pushed with `POST` (same run, or the next run
     if that fails). Count one conflict. If the local and server versions are identical (content,
@@ -212,8 +213,12 @@ Results and errors:
 ## R-10. UI patterns for e-ink
 
 - **Decision**: Single `ApplicationWindow` + `StackView` with no transitions; stage item scaled by
-  `1/devicePixelRatio` and rotated by the polled G-sensor value, exactly as InkFeed
-  (`docs/inkfeed-analysis.md` §4.3), with the rotation preference stored in settings. The reader
+  `1/devicePixelRatio` and NOT rotated: rotation is done by the system. On a sensor change the app
+  calls InkView `SetOrientation(n)` and then the platform screen's `updateGeometry()`, with the
+  keyboard closed around the change (measured on the InkPad, see R-15; the InkFeed pattern of
+  rotating the content inside a portrait window leaves the system keyboard and status bar in
+  portrait and was rejected). The rotation preference (auto/portrait/landscape) is stored in
+  settings. The reader
   uses a non-interactive `Flickable` with page-up/page-down controls and tap zones that jump
   `contentY` instantly (no flick physics, no scroll animation). The editor uses `TextArea` and
   `Qt.inputMethod.show()`; cursor blinking is disabled (`QStyleHints::setCursorFlashTime(0)`)
@@ -221,9 +226,9 @@ Results and errors:
   8 mm) and no highlight animation.
 - **Rationale**: Page jumps and a static cursor reduce refreshes and ghosting. InkFeed found no
   e-ink refresh API usage and relies on the QPA plugin (`docs/inkfeed-analysis.md` §6).
-- **VERIFY (device)**: ghosting and latency while typing (risk R-13), whether the cursor setting
-  has effect, and whether a periodic full refresh is needed. If so, a small InkView glue call
-  (`FullUpdate`) behind a Settings action is the fallback.
+- **Device result (2026-10-10)**: see R-15. Still to confirm with the real editor: ghosting over a
+  long typing session, and whether a periodic full refresh is needed (`FullUpdate` behind a
+  Settings action stays the fallback).
 
 ## R-11. Network availability at start
 
@@ -257,7 +262,7 @@ Results and errors:
 | 8 | Host lacks Qt `rcc`; SDK `rcc` unusable; SDK never relocated | Cannot build | Quickstart lists prerequisites (`qt6-base-dev-tools`, cmake, ninja or SDK's); core and tests build without Qt |
 | 9 | Server certificate expires or uses a private CA | Sync refused | Clear message; local use continues; private CAs and self-signed certificates are supported through `custom-ca.pem` (R-6) |
 | 10 | Large first pull (many notes) on slow Wi-Fi | Long sync, timeouts | Chunked listing if available; progress count in status; resumable (each note stored as it arrives) |
-| 11 | Title derivation mismatch between client and server | The server's title can differ from the local derivation | The displayed title is always derived locally (`derive_title`); the server title is ignored; fixtures confirm the server still accepts the content |
+| 11 | Title derivation mismatch between client and server | The server's title can differ from the local derivation | Notes in sync show the server title (verified on a real server: titles are file names and differ from the first line after renames/cleanup); notes with local changes show `derive_title`; a one-time full pull refreshes titles stored by older versions |
 
 ## R-14. Naming and licensing mechanics
 
@@ -276,3 +281,79 @@ Results and errors:
   `applications/pbnotes.bin`, `applications/icons/*.bmp`, `INSTALL.md`, bundled `pbnotes-cacert.pem`);
   user registers the app in `system/config/desktop/view.json` (id starts with `U_`, absolute path,
   opaque 122x122 8-bit BMP icons) and reboots. GitHub Actions is deferred.
+
+## R-15. Device results: Hello World and typing spike (2026-10-10)
+
+Measured on the user's InkPad One with the Phase 1 Hello World app (gates T114 and T118). Raw logs
+were reviewed from `system/pbnotes/hello.log` and `pbnotes.log` on the reader.
+
+| Topic | Result |
+|-------|--------|
+| Build and start (T114) | The ARM build packaged by `scripts/package-device.sh` installs and starts from the Applications menu; Quit exits with code 0 and returns to the launcher cleanly |
+| Qt runtime (R-2) | The device runs Qt **6.10.3**; the app built against the SDK's 6.8.2 and resources made with host `rcc` 6.10.2 `--no-zstd` run without problems |
+| Screen | Qt screen 1080x1440 logical at devicePixelRatio 1.30003 (panel 1404x1872); window 1080x1335 below the status panel |
+| Keyboard (R-13 #2) | The on-screen keyboard is the reader's native one (`OpenKeyboard`, latinime German/English suggestions). It opens on `Qt.inputMethod.show()`, keys hit what is tapped, the text field stays visible, in portrait and in both landscape directions |
+| Typing speed | App-side time from a keystroke to the next frame: 45 ms on average, 50 ms at most (26 samples). Panel ghosting was not judged over a long session |
+| Rotating the content only (InkFeed pattern) | Content rotates, but the system keyboard and status bar stay portrait: rejected |
+| `SetOrientation(n)` only | The system presents the content upright and rotates keyboard and status bar, but Qt's window stays portrait-sized (the layout fills only part of the landscape screen); no Qt geometry event is emitted |
+| `SetOrientation(n)` + platform screen `updateGeometry()` | **Works in all four orientations.** Qt screen 1080x1440 <-> 1440x1080, window 1080x1335 <-> 1440x975; the layout, touch positions, keyboard and status bar are correct. The platform screen (`EinkPlatformScreen`, a QObject) is reached with `QGuiApplication::primaryScreen()->handle()`, `dynamic_cast<QObject*>` and `QMetaObject::invokeMethod(..., "updateGeometry")` (private QPA header used only for the cast). Calling `setOrientation(int)` on it as well is not needed. Do NOT rotate the content on top of this (double rotation) |
+| Rotating with the keyboard open | The keyboard stays in the old orientation and the screen updates only partly. **Fix verified:** close the keyboard, `SetOrientation`, `updateGeometry` (about 0.4 s later), forced redraw, reopen the keyboard (about 1.4 s in total) |
+| Wi-Fi API (R-11) | `QueryNetwork()` returned 515 (0x203, Wi-Fi ready) when connected and 3 (Wi-Fi on, not connected) otherwise: connected iff `(value & 0x0f00) != 0` |
+| Hardware keys | The reader has no hardware Back button; Back is an on-screen button. A `Key_Enter` from the keyboard arrives as Qt key 0x1000005. The page stack must provide its own Back |
+| Back button bug found | `StackView.view` is only valid on a page's root item, not inside a child's handler (fixed in the spike) |
+
+### R-16. Device results: setup screen (User Story 1, 2026-10-10)
+
+| Topic | Result |
+|-------|--------|
+| First UI build | Showed a blank screen: `StackView.initialItem` with a URL expression silently loads nothing. Fixed with `push()` in `Component.onCompleted`; the `--self-test` now fails when no page is shown |
+| CA store (R-6, T021) | The reader's own CA store works: a connection test against a public Nextcloud host (verified certificate, `ca.selected source=device`) succeeded with certificate verification on. The bundled CA file is therefore only a fallback |
+| Wi-Fi off | With Wi-Fi off the name lookup fails (`curl 6: Could not resolve hostname`). The app now checks `QueryNetwork()` and, for a user-initiated test, asks the system to connect with `NetConnectAsync` (it may show its own dialog); verified: connects and runs the test, or reports "Wi-Fi is not connected" |
+| Setup flow | Empty/`http://`/unreachable inputs give the right messages and keep Save disabled; successful test enables Save; Save leads to Home; the app starts on Home afterwards |
+| Settings | Certificate status ("the reader's own", custom CA none), rotation preference cycle (auto/portrait/landscape) and Forget account with confirmation (cancel keeps the account, confirm returns to an empty setup form) work |
+| Draft | Entries typed on the setup screen are kept when a test fails and restored on the next start (no retyping of long URLs/app passwords); cleared by Save and Forget account |
+
+### R-17. Device results: note list, reader, sync (User Story 2, 2026-10-10)
+
+| Topic | Result |
+|-------|--------|
+| First sync | 12 notes pulled after Save; "Last sync" line with counts; times shown in the C library's local time (Qt's own time zone lookup gave a wrong time on the device) |
+| Sync now with Wi-Fi off | `NetConnectAsync` brings Wi-Fi up (system dialog) and the sync then runs; if it fails the user is told to turn Wi-Fi on |
+| Rendering | Headings, bold/italic, lists, drawn checkboxes and the favorite star render correctly; no animations, scrolling by page buttons and edge taps (invisible 50 px strips) works; no smearing noticed |
+| List paging | Moves by whole rows (a fixed pixel step cut rows in half) |
+| Empty notes | Two notes had no text on the server (only a file name as title): they showed blank rows. Now: server title as display title |
+| Titles | The server's titles differ from the first line (renames, cleanup of `#`, `:`, `/`); decision: notes in sync show the server title, notes with local changes the first line (FR-019 changed) |
+| Offline reading | Works with Wi-Fi off after a restart; no waiting on the network |
+| Font size | small/medium/large with A-/A+ persists across restarts |
+
+Not yet verified: caret blinking, non-ASCII input, selection and paste, and
+ghosting over a long session.
+
+### R-18. Device results: pushing changes, start-time sync, conflict (User Story 4, 2026-10-10)
+
+| Topic | Result |
+|-------|--------|
+| Push | A new note, an edit and a delete made on the reader reach the server on "Sync now"; the status line shows "N sent" and the pending count disappears |
+| Pull | An edit made on the server arrives on the reader ("1 received") |
+| Start | With Wi-Fi on the app syncs by itself at start; with Wi-Fi off it starts without an error and does not switch Wi-Fi on; notes stay readable |
+| Conflict | A note edited on both sides keeps both versions: the server's text replaces the note, the reader's text is saved as a copy titled "... (conflict YYYY-MM-DD)" and uploaded; the user is told |
+
+Not measured on the device: SC-009 timing with 1,000 notes (the host benchmark covers the algorithm).
+
+### R-19. Device results: conflict handling (User Story 5, 2026-10-10)
+
+| Topic | Result |
+|-------|--------|
+| Edited on both sides | Dialog "Notes changed in two places" and status "1 conflict(s) - copies kept"; the server version keeps the title, the reader text is kept as a "(conflict date)" copy that also appears on the server |
+| Deleted here, edited on the server | The note is not deleted and returns with the server text; status "1 deleted note(s) restored" |
+| Edited here, deleted on the server | The edited note is uploaded again as a new note; nothing is lost |
+| No change | A further sync shows no dialog |
+
+### R-20. Device results: views, sort, search, task boxes (User Story 6, 2026-10-10)
+
+| Topic | Result |
+|-------|--------|
+| View picker, sort, search | All, Favorites, Uncategorized and categories with counts; sort newest / A-Z; search in title and body (combined with the view, 0.5 s after the last key); view and sort are remembered, the search text is not; typing with the system keyboard is acceptable |
+| Task boxes | `- [ ] item` lines are drawn as boxes and flip with one tap, the scroll position stays, the change is pending and arrives on the server. Lines such as `[ ] item` (no leading dash) are not task items, in the web and Android apps either |
+| Fixed after the check | The View button kept the old category name after the category ran out of notes (the property did not announce the change) |
+
