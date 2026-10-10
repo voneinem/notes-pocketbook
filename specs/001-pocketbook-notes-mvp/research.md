@@ -357,3 +357,7 @@ Not measured on the device: SC-009 timing with 1,000 notes (the host benchmark c
 | Task boxes | `- [ ] item` lines are drawn as boxes and flip with one tap, the scroll position stays, the change is pending and arrives on the server. Lines such as `[ ] item` (no leading dash) are not task items, in the web and Android apps either |
 | Fixed after the check | The View button kept the old category name after the category ran out of notes (the property did not announce the change) |
 
+### R-21. Closing remarks (2026-10-10)
+
+The MVP was accepted by the maintainer without T022, T109 and the remaining measurements of T100. Open items that stay open: the Notes API assumptions R-7 (a)-(e) were not verified against a live server (the fixtures are marked `.unverified`), the `custom-ca.pem` placement over USB was not tried, and the typing latency/ghosting (R-13 #2) and the stopwatch criteria SC-001 and SC-004 were not measured.
+

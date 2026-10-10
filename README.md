@@ -4,17 +4,20 @@ A notes app for the PocketBook InkPad One that syncs with a [Nextcloud Notes](ht
 server. Read your notes on e-ink, also offline; write and edit with the on-screen keyboard; sync
 when you are on Wi-Fi.
 
-> **Status: work in progress.**
+> **Status: MVP complete and tested on an InkPad One.** Early software; it works for the author.
 >
-> - **Done and tested on the host:** the Qt-free core library: Notes API v1 client, SQLite store,
->   push-then-pull sync with conflict handling (both versions are kept), markdown parser, search,
->   views and sorting, TLS with certificate verification and an optional user-supplied CA file.
->   Run `scripts/pre-merge.sh` to see the 41 automated tests and the checks pass.
-> - **Built for the device but not yet run on one:** a Hello World app with a typing spike page,
->   the launcher script and the install package (`pbnotes.bin`, `pbnotes.app`).
-> - **Not done yet:** the real user interface (setup, note list, reader, editor, settings) and
->   everything that needs the device. See [tasks.md](specs/001-pocketbook-notes-mvp/tasks.md):
->   tasks marked `[MANUAL]` need the InkPad or a live Nextcloud server.
+> - **Works on the device:** setup with a connection test, note list with views, sorting and
+>   search, reader (basic Markdown, task checkboxes, font size), editor with explicit save, offline
+>   create/edit/delete, manual and start-time sync, and conflict handling that keeps both
+>   versions. The device results are recorded in [research.md](specs/001-pocketbook-notes-mvp/research.md)
+>   (R-15 to R-20).
+> - **Tested on the host:** the Qt-free core, the bridge and the QML pages are covered by 43
+>   automated tests. Run `scripts/pre-merge.sh` to build, run them and check for secrets.
+> - **Not verified:** the Notes API details that need a live server (the fixtures in
+>   `tests/fixtures/` are hand-written and marked `.unverified`), placing your own
+>   `custom-ca.pem` over USB, and long typing sessions (latency, ghosting). Only the InkPad One was
+>   tested. See [tasks.md](specs/001-pocketbook-notes-mvp/tasks.md) and
+>   [docs/security-review.md](docs/security-review.md).
 >
 > Working name of the app and binary: `pbnotes` (a placeholder).
 
@@ -93,7 +96,7 @@ More detail and the end-to-end checks: [quickstart.md](specs/001-pocketbook-note
 
 See [INSTALL.md](INSTALL.md) (also part of the package). In short: copy `applications/` to the
 reader's storage root, register the app in `system/config/desktop/view.json`, reboot. These steps
-have not been verified on a device yet.
+were used on an InkPad One.
 
 ## Documentation
 
