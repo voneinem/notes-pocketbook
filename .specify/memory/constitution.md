@@ -27,8 +27,11 @@ external input (device files, imports, network requests) MUST be validated befor
 TLS certificate verification MUST be enabled for every connection that carries credentials.
 Disabling verification, including as a development or device workaround, MUST NOT be implemented;
 InkFeed's disabled-verification workaround MUST NOT be copied. Trust anchors MUST come from the
-device CA store when it is usable, otherwise from a CA file bundled with the application. An
-explicit "trust self-signed certificate" option MAY exist only if it is off by default, applies
+device CA store when it is usable, otherwise from a CA file bundled with the application. If a
+file `custom-ca.pem` exists in the application data directory, its certificates are added to
+those trust anchors. Certificate verification MUST remain enabled in all cases, no option may
+trust unverifiable certificates, and the Settings screen MUST show whether a custom CA is loaded.
+An explicit "trust self-signed certificate" option MAY exist only if it is off by default, applies
 to a single user-chosen server, and shows a clear warning when enabled.
 
 Rationale: notes and reading annotations reveal personal information, and credentials sent over an
@@ -52,14 +55,16 @@ logic and its tests.
 Rationale: fast, device-free tests make Test-First practical and keep the core portable.
 
 ### VI. No Silent Data Loss
-User data MUST NOT be lost or silently overwritten. Writes to the server MUST send the note's
-last known ETag in an If-Match header, and an HTTP 412 response (or any other detected conflict)
-MUST be treated as a conflict. On conflict both versions MUST be kept and the user MUST be able to
-resolve it; neither version may be discarded automatically. Local changes MUST NOT be discarded
-until the server has confirmed them.
+User data MUST NOT be lost or silently overwritten. Writes MUST send If-Match where the API
+supports conditional writes. For DELETE, first perform a conditional GET with the stored ETag and
+delete only if the note is unchanged on the server; a changed note is a conflict and is not
+deleted. An HTTP 412 response (or any other detected conflict) MUST be treated as a conflict. On
+conflict both versions MUST be kept and the user MUST be able to resolve it; neither version may be
+discarded automatically. Local changes MUST NOT be discarded until the server has confirmed them.
 
 Rationale: a reference implementation was observed to push without If-Match, which lets the last
-writer win and discard the other edit; for a notes app that is unacceptable.
+writer win and discard the other edit; for a notes app that is unacceptable. DELETE is guarded by a
+conditional GET because the server may not honor If-Match on DELETE.
 
 ## Security & Data Handling Constraints
 
@@ -111,4 +116,4 @@ guidance; PATCH for clarifications and wording fixes.
 Compliance is reviewed in every pull request and in each plan's Constitution Check. Unjustified
 violations block the merge.
 
-**Version**: 1.1.1 | **Ratified**: 2026-10-10 | **Last Amended**: 2026-10-10
+**Version**: 1.2.0 | **Ratified**: 2026-10-10 | **Last Amended**: 2026-10-10
