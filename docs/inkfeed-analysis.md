@@ -78,8 +78,8 @@ The toolchain is set inline before `project()`, guarded by `if(TARGET_TYPE STREQ
 Checked with `command -v` / `ls`:
 
 - The real SDK is at `<projects>/pocketbook-sdk-6.11/arm-buildroot-linux-gnueabihf_sdk-buildroot` (no `sdk_extracted/` level; `ls pocketbook-sdk-6.11/sdk_extracted` fails). So the default `SDK_PATH` does **not** resolve here and **`-DSDK_PATH` must be passed**.
-- `gcc`/`g++`/`make`/`zip` are installed on the host. **`cmake` and `ninja` were not found on PATH.**
-- **No host `rcc` was found** in the paths CMake searches: `/usr/lib/qt6/libexec` contains only `QtWebEngineProcess` and `webenginedriver` (`/usr/lib/qt6/bin` and `/usr/lib/x86_64-linux-gnu/qt6/libexec` do not exist). A full-disk `find / -name rcc` did not finish before the analysis ended, so a copy elsewhere is **not ruled out**. Qt 6.10.2 runtime libs are present in `/usr/lib/x86_64-linux-gnu`, but no Qt dev tools. Without an rcc, `cmake` configure fails at `find_program(HOST_RCC ... REQUIRED)`.
+- `gcc`/`g++`/`make`/`zip` are installed on the host. `/usr/bin/cmake` exists (version 4.2.3; an earlier `command -v` check wrongly reported it missing). `/usr/bin/ninja` also exists. Note CMake 4.x removed compatibility with `cmake_minimum_required` below 3.5; this project requires 3.16, so that is fine.
+- **No host `rcc` was found** in the paths CMake searches: `/usr/lib/qt6/libexec` contains only `QtWebEngineProcess` and `webenginedriver` (`/usr/lib/qt6/bin` and `/usr/lib/x86_64-linux-gnu/qt6/libexec` do not exist). A full-disk `find / -name rcc -type f` found only the SDK's `local/qt6/libexec/rcc` and a snap copy (`/snap/kf6-core24/64/usr/lib/qt6/libexec/rcc`, outside the searched paths). Qt 6.10.2 runtime libs are present in `/usr/lib/x86_64-linux-gnu`, but no Qt dev tools. Without an rcc in those paths, `cmake` configure fails at `find_program(HOST_RCC ... REQUIRED)`.
 - The SDK ships its own `local/qt6/libexec/rcc`. Using it was the author's rejected path (ICU); whether it actually runs here was **not tested**.
 - Qt version note: the SDK sysroot Qt is 6.8 (per the CMake comment); the host Qt is 6.10.2. The rcc output must be compatible across 6.x (author's claim; hence `--no-zstd`).
 
@@ -229,8 +229,8 @@ CI: `.github/workflows/inkpad-one.yml` downloads the SDK from a `POCKETBOOK_SDK_
 
 ### 9.1 Prerequisites
 
-- Host: `cmake` >= 3.16 (3.28.3 was used for the existing cache), a build tool (Ninja or Make; the stale cache used Ninja), `zip`, `git` (optional; without git, version falls back to `0.0.0`/the argument).
-- Host Qt `rcc` reachable at one of `/usr/lib/qt6/libexec`, `/usr/lib/x86_64-linux-gnu/qt6/libexec`, `/usr/lib/qt6/bin` (on Debian/Ubuntu from the package `qt6-base-dev-tools`, as installed by `qt6-base-dev`; package name is from memory, **unverified**). On this machine neither cmake, ninja, nor such an rcc was found (section 3.4).
+- Host: `cmake` >= 3.16 (3.28.3 was used for the existing cache; 4.2.3 is installed here), a build tool (Ninja or Make; the stale cache used Ninja), `zip`, `git` (optional; without git, version falls back to `0.0.0`/the argument).
+- Host Qt `rcc` reachable at one of `/usr/lib/qt6/libexec`, `/usr/lib/x86_64-linux-gnu/qt6/libexec`, `/usr/lib/qt6/bin` (on Debian/Ubuntu from the package `qt6-base-dev-tools`, as installed by `qt6-base-dev`; package name is from memory, **unverified**). On this machine no rcc exists in those paths (section 3.4); cmake 4.2.3 and ninja are present. Install `qt6-base-dev-tools` to provide `rcc`.
 - The PocketBook SDK 6.11 (RK3566) extracted. Here: `<projects>/pocketbook-sdk-6.11/arm-buildroot-linux-gnueabihf_sdk-buildroot`. The SDK's x86-64 host tools (cross `gcc`, `moc`) must be runnable on this host.
 - The SDK may need its `relocate-sdk.sh` to have been run (it exists in the SDK root); whether it already was is **unverified**. The compiler was not executed.
 
@@ -267,4 +267,4 @@ Notes:
 ## 10. Unverified / not found summary
 
 - Not found: any CA bundle (`cacert.pem`), TLS verification on device (disabled instead), explicit e-ink refresh/partial-update/waveform control, InkView event loop, dark-theme implementation, pinch-to-zoom wiring in QML.
-- Unverified: whether the SDK's own `rcc` runs on this host (ICU claim), whether a host rcc exists outside the searched paths, whether the SDK has been relocated and its cross-compiler runs, device Qt minor-version compatibility with the SDK's Qt 6.8, behaviour of `ImageCache` TLS on device, the exact calls in `sync_engine.cpp` and the contents of `release.yml`, and all device behaviours quoted from `docs/inkpad-one-dev-notes.md` (taken from the author's notes, not tested here).
+- Unverified: whether the SDK's own `rcc` runs on this host (ICU claim), whether the SDK has been relocated and its cross-compiler runs, device Qt minor-version compatibility with the SDK's Qt 6.8, behaviour of `ImageCache` TLS on device, the exact calls in `sync_engine.cpp` and the contents of `release.yml`, and all device behaviours quoted from `docs/inkpad-one-dev-notes.md` (taken from the author's notes, not tested here).
