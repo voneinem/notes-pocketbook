@@ -18,6 +18,11 @@ when you are on Wi-Fi.
 >
 > Working name of the app and binary: `pbnotes` (a placeholder).
 
+> **Built on [InkFeed](https://github.com/jrohde/InkFeed) by Joost Rohde.**
+> InkFeed is the open-source RSS/Atom reader for the PocketBook InkPad One that showed how to run a
+> Qt Quick app on this device with the PocketBook SDK. This project would not exist without it. See
+> [Credits](#credits-and-thanks).
+
 Not affiliated with Nextcloud GmbH or PocketBook.
 
 ## MVP scope
@@ -96,14 +101,31 @@ have not been verified on a device yet.
   host-testable core, no silent data loss)
 - [Specification](specs/001-pocketbook-notes-mvp/spec.md), [plan](specs/001-pocketbook-notes-mvp/plan.md),
   [tasks](specs/001-pocketbook-notes-mvp/tasks.md)
-- Background analyses in [`docs/`](docs/): InkFeed, the PocketBook SDK, and the behavior of the
+- Background analyses in [`docs/`](docs/): [InkFeed](https://github.com/jrohde/InkFeed), the PocketBook SDK, and the behavior of the
   Android Notes app (reference only)
+
+## Credits and thanks
+
+**Many thanks to Joost Rohde ([@jrohde](https://github.com/jrohde)) for
+[InkFeed](https://github.com/jrohde/InkFeed).** Without that project this app would have started
+from zero: InkFeed proved that a Qt 6 / Qt Quick application can run on the InkPad One, and it
+documents how to get there. This project follows its approach and adapts these parts of it:
+
+- the CMake ARM cross-build setup with the PocketBook SDK, and the manual `moc`/`rcc` steps
+  (`cmake/sdk.cmake`, `cmake/qt_manual.cmake`)
+- the InkView glue, rotation and `devicePixelRatio` handling, and the flat e-ink button style
+  (`app/`, `qml/`)
+- the launcher script that starts the app on the reader (`platform/pocketbook/pbnotes.app`)
+- the packaging script that builds the install zip (`scripts/package-device.sh`)
+
+InkFeed is MIT licensed, Copyright (c) 2026 Joost Rohde; its license text is reproduced in
+[NOTICE](NOTICE). If you like this app, please have a look at InkFeed and give it a star.
 
 ## License
 
 This project is licensed under the **MIT License**. See [LICENSE](LICENSE).
 Copyright (c) 2026 Volker von Einem.
 
-Third-party components and adapted patterns (InkFeed, MIT; the Mozilla CA bundle, MPL-2.0; SQLite,
+Third-party components and adapted patterns ([InkFeed](https://github.com/jrohde/InkFeed) by Joost Rohde, MIT; the Mozilla CA bundle, MPL-2.0; SQLite,
 public domain) are attributed in [NOTICE](NOTICE). The Android Notes app (GPL-3.0) is used as a
 behavioral reference only; no code or text from it is included.
