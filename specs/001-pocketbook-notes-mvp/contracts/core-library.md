@@ -56,9 +56,9 @@ mark_deleted(local_id)                               // Deleted, or remove row i
 list(view, sort, query) -> vector<NoteSummary>       // views: All, Favorites, Uncategorized, Category(name)
 categories() -> vector<{name,count}>
 get(local_id) -> Note
-apply_remote(...), confirm_push(local_id, response, sent_snapshot), create_conflict_copy(...)
+apply_remote(...), confirm_push(local_id, response, sent_snapshot), resolve_conflict(local_id, server_note) -> optional copy_local_id (none when the versions are identical)
 ```
-- All mutating calls are atomic. `confirm_push` keeps status `Edited` if the current fields differ
+- All mutating calls are atomic. `resolve_conflict` inserts the conflict copy, verifies it against the local text, and replaces the original with the server version in a single transaction (rollback on any failure). `confirm_push` keeps status `Edited` if the current fields differ
   from `sent_snapshot` (FR-036).
 
 ## SyncEngine

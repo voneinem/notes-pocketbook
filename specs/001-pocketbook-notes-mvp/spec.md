@@ -27,6 +27,12 @@
   trusted authorities; verification always stays on, there is no "trust anything" option, and
   Settings shows whether a custom CA is loaded. (This refines the self-signed answer above: there
   is still no in-app option to accept an unverifiable certificate.)
+- Q: How are the displayed title, category characters, identical edits on both sides, and a lost
+  create confirmation handled? → A: (decided 2026-10-10) The displayed title is always derived
+  from the text on the device; a category may contain `/` (shown flat) but not control characters,
+  leading or trailing spaces, or more than 255 characters; identical text on both sides creates no
+  conflict copy; a note can be duplicated only if the server accepted a new note but the
+  confirmation never reached the device (nothing is lost).
 
 ## User Scenarios & Testing *(mandatory)*
 
@@ -148,7 +154,7 @@ that both sides end up with the same notes and the status line shows the time an
    failure occurs, **Then** the status shows what failed, local data is untouched, and a later sync
    can retry.
 5. **Given** a note was created or changed locally and the sync is interrupted midway, **When** the
-   next sync runs, **Then** the change is neither lost nor duplicated on the server.
+   next sync runs, **Then** the change is never lost; only if the server had already created the note and the confirmation never reached the device can the note appear twice, with identical text.
 6. **Given** the app has never synced or has synced before, **When** the user looks at the status
    area, **Then** it shows either "never synced" or the time and outcome of the last attempt.
 
@@ -227,8 +233,13 @@ expected notes each time.
   and saved without the app becoming unresponsive.
 - Two notes have the same title, or a title contains characters the server restricts: both are
   kept distinct and sync does not drop or merge either.
-- A category name is empty, very long, or contains a path separator: the app accepts or rejects it
-  with a clear message rather than syncing a broken value.
+- A category name is empty (the note is uncategorized), longer than 255 characters, has leading or
+  trailing spaces, or contains control characters: the app rejects it with a clear message and
+  keeps the previous category. A category containing `/` is accepted and shown as typed (flat).
+- The connection drops after the server created a new note but before the app received the
+  confirmation: the next sync creates the note again, so it can appear twice with identical text;
+  no text is lost.
+- A note was edited identically on the device and on the server: no conflict copy is created.
 - The device runs out of storage while saving: the save fails visibly and the previous version
   of the note is preserved.
 - The device clock is wrong: modification-date ordering may look odd, but no note is lost or
@@ -295,7 +306,7 @@ expected notes each time.
 - **FR-018**: Users MUST be able to set or change a note's category and toggle its favorite
   marker, with the change taking effect immediately.
 - **FR-019**: A note's title MUST be the first non-empty line of its text and MUST update
-  whenever that line changes; the editor has no separate title field.
+  whenever that line changes. The title shown in the app is always derived from the text this way, including after a sync (a title assigned by the server is never displayed); the editor has no separate title field.
 - **FR-020**: The system MUST NOT store a new note that is empty or whitespace-only.
 
 **Offline behavior**
@@ -313,12 +324,14 @@ expected notes each time.
 - **FR-025**: Each sync MUST send local changes (new, edited, deleted notes) to the server first
   and then download remote changes.
 - **FR-026**: Downloading MUST NOT overwrite or remove a note that has unsynced local changes.
-- **FR-027**: The system MUST show the time and outcome (success, partial, failed, in progress,
-  never synced) of the last sync at all times in the main view.
+- **FR-027**: The system MUST show the time and outcome (success, partial, failed, offline, server in
+  maintenance, in progress, never synced) of the last sync at all times in the main view.
 - **FR-028**: Only one sync MUST run at a time; a second request during a sync MUST NOT start an
   overlapping one.
-- **FR-029**: A failed or interrupted sync MUST NOT lose, duplicate, or corrupt any note, and the
-  next sync MUST pick up where pending changes remain.
+- **FR-029**: A failed or interrupted sync MUST NOT lose or corrupt any note, and the next sync
+  MUST pick up where pending changes remain. A note MUST NOT be duplicated, except when the server
+  accepted a new note but its confirmation never reached the device; the duplicate then has
+  identical text.
 - **FR-030**: Notes removed on the server MUST be removed from the device only if they have no
   unsynced local changes.
 - **FR-031**: Background sync is not provided; the system MUST sync only on user request or at
@@ -331,7 +344,9 @@ expected notes each time.
 - **FR-033**: On such a conflict the system MUST keep both versions, leaving the server's version
   as the original note and saving the local version as a separate note whose title clearly
   identifies it as a conflict copy of the original (including the conflict date). The conflict
-  copy MUST be uploaded to the server as a new note and then sync like any other note.
+  copy MUST be uploaded to the server as a new note and then sync like any other note. If the
+  local and server versions have identical text, category and favorite, no conflict copy is
+  created and the note is simply in sync.
 - **FR-034**: The system MUST tell the user, in the sync status, how many conflicts occurred, and
   conflict copies MUST be reachable from the note list.
 - **FR-035**: A note deleted on one side and edited on the other MUST be kept (the edited version
@@ -373,7 +388,7 @@ expected notes each time.
 - **SC-004**: A user can create a new note, type a short note, and save it in under 1 minute, with
   no network.
 - **SC-005**: Across a test set of edit/sync interruption scenarios (connection drop, app closed,
-  server error), 0 notes are lost, duplicated, or silently overwritten.
+  server error), 0 notes are lost, corrupted or silently overwritten, and a note is duplicated only when a create was accepted by the server but its confirmation was lost (identical text).
 - **SC-006**: In every tested conflict scenario (both sides edited, deleted-versus-edited, repeated
   conflicts), both versions of the text remain available to the user and the user is told.
 - **SC-007**: 100% of connections that carry credentials are refused when the server certificate
@@ -381,8 +396,8 @@ expected notes each time.
 - **SC-008**: Search over 1,000 notes returns results in under 2 seconds.
 - **SC-009**: Syncing 1,000 notes where only a few changed completes in under 30 seconds on a
   typical home Wi-Fi connection.
-- **SC-010**: The last-sync time and outcome are visible without any extra navigation in 100% of
-  main-view screens.
+- **SC-010**: The last-sync time and outcome are visible without any extra navigation on the note list
+  screen (the main view).
 - **SC-011**: In a usability pass, at least 9 out of 10 testers can find and use Sync now, switch
   views, and change the font size on their first attempt without help.
 

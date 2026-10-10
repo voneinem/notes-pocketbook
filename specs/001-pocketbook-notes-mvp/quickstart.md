@@ -13,7 +13,7 @@ Host (Linux x86-64):
 - For the device build: Qt host `rcc` from `qt6-base-dev-tools` (Debian/Ubuntu), because the SDK's
   `rcc` cannot run here (needs ICU 76). The host `core` build and its tests do **not** need Qt.
 - The PocketBook SDK; its location is supplied only through the environment:
-  `export POCKETBOOK_SDK=<projects>/pocketbook-sdk-6.11/arm-buildroot-linux-gnueabihf_sdk-buildroot`
+  `export POCKETBOOK_SDK=<path to arm-buildroot-linux-gnueabihf_sdk-buildroot>`
   (or `-DSDK_PATH=...`). There is no built-in default.
 - A Nextcloud test server with the Notes app enabled (API v1), a test user and an app password,
   reachable over HTTPS with a certificate trusted by the host (for the live checks in step 5).
@@ -38,7 +38,7 @@ scripts/package-device.sh build-arm/pbnotes.app "" build-arm/dist
 ```
 Expected: configuration fails with a clear message when neither `POCKETBOOK_SDK` nor `-DSDK_PATH`
 is set; the zip contains `applications/pbnotes.app` (launcher), `applications/pbnotes.bin` (ELF),
-`applications/icons/*.bmp`, `cacert.pem`, `INSTALL.md`.
+`applications/icons/*.bmp`, `applications/pbnotes-cacert.pem`, `INSTALL.md`.
 
 ## 4. Device probe (run once on the InkPad One before relying on TLS or UI details)
 

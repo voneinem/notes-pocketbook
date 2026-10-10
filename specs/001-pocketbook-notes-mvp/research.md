@@ -83,7 +83,7 @@ server check). Nothing here required a new `NEEDS CLARIFICATION` in the plan.
   file selection at runtime (`ca_selector`): try the device store candidates in order
   (`/etc/ssl/certs/ca-certificates.crt`, `/etc/ssl/cert.pem`, further paths from the device probe)
   and accept one only if it is a readable, non-empty file containing at least one PEM certificate;
-  otherwise use the bundled `cacert.pem` installed next to the binary. The chosen path is set with
+  otherwise use the bundled CA file (repository `third_party/cacert/cacert.pem`, installed on the device as `/mnt/ext1/applications/pbnotes-cacert.pem`). The chosen path is set with
   `CURLOPT_CAINFO` and logged (path only). The connection test reports which source is used.
 - **Rationale**: Constitution III says device store when usable, else bundled CA file. InkFeed
   found no CA bundle and disabled verification; we must not copy that. The SDK sysroot has an empty
@@ -130,7 +130,7 @@ server check). Nothing here required a new `NEEDS CLARIFICATION` in the plan.
   `DELETE notes/{id}`; read one `GET notes/{id}`. Timestamps are epoch seconds.
 - **Request bodies**: content, category, favorite, modified (seconds). The title is **not** sent;
   the server derives it from the first line (spec FR-019). After each push the returned note
-  replaces local fields (title, etag, modified).
+  replaces the local etag and modified time; the returned title is ignored, because the displayed title is always derived locally from the content (spec FR-019).
 - **VERIFY (live server, contract test fixtures)**: (a) the server accepts `If-Match` on `PUT`
   and returns `412` with the current ETag semantics; (b) how the server derives the title from the
   first line (markdown `#` stripping, characters replaced) so the local preview title matches;
@@ -152,10 +152,15 @@ Push, per pending note, each in its own transaction:
 - `edited`, remote id: `PUT` with `If-Match` = stored etag.
   - 200: replace with response, `void` (only if local content/category/favorite are unchanged since
     the request began; otherwise keep `edited` so a concurrent UI edit is not lost).
-  - **412 (conflict)**: fetch the server version with `GET notes/{id}`; replace the original note
-    with the server version (`void`); create a new local note with the local text, category and
-    favorite, title prefixed/suffixed as a conflict copy with date, status `edited`, no remote id.
-    The copy is pushed with `POST` in the same run. Count one conflict.
+  - **412 (conflict)**: fetch the server version with `GET notes/{id}` (network only, no database
+    change; if it fails the note stays `edited` and the next run retries). Then ONE database
+    transaction: read the current local row, insert the conflict copy first (local text, category
+    and favorite, title with conflict marker and date, status `edited`, no remote id), verify the
+    copy's content equals the local content byte-for-byte, and only then replace the original with
+    the server version (`void`). Any failure rolls the whole transaction back, so the local text is
+    never in zero rows. After the commit the copy is pushed with `POST` (same run, or the next run
+    if that fails). Count one conflict. If the local and server versions are identical (content,
+    category, favorite), no copy is made: the original just becomes `void` and no conflict is counted.
   - 404: the note was deleted on the server; re-create with `POST` (spec FR-035), clear the old
     remote id. Count as informational "recreated".
 - `deleted`, no remote id: remove the row.
@@ -187,6 +192,11 @@ Results and errors:
 - Outcome values: `never`, `running`, `success`, `partial` (some pending notes failed),
   `failed`, `offline`, `maintenance`.
 - Favorite toggle and checkbox toggle are normal local edits (status `edited`).
+- **Known limitation (lost POST response)**: if the server created a new note but the response
+  never reached the device (connection drop, app killed), the note still has no remote id and the
+  next sync POSTs it again, so it exists twice on the server with identical text. Nothing is lost.
+  Automatic matching was rejected as extra complexity for a rare, safe failure (decided
+  2026-10-10); revisit if it occurs in practice.
 
 ## R-9. Markdown rendering (Qt-free)
 
@@ -238,16 +248,16 @@ Results and errors:
 | # | Risk | Impact | Mitigation / detection |
 |---|------|--------|------------------------|
 | 1 | Device Qt version differs from the SDK's 6.8.2 | App fails to start or QML import errors | Probe script; restrict QML features; log Qt runtime version at start; document minimum version |
-| 2 | Text editing latency and ghosting on e-ink | Poor typing experience, user abandons editor | Plain `TextArea`, no live markdown, no cursor blink, no per-keystroke work (no autosave, no live word count); measure keystroke-to-paint on device; fallback: edit in a dialog with delayed repaint, `FullUpdate` action |
+| 2 | Text editing latency and ghosting on e-ink | Poor typing experience, user abandons editor | Plain `TextArea`, no live markdown, no cursor blink, no per-keystroke work (no autosave, no live word count); measure keystroke-to-paint on device (the Phase 1 typing spike T118 tests this before US3 starts); fallback: edit in a dialog with delayed repaint, `FullUpdate` action |
 | 3 | Host Qt 6.10 `rcc` output vs Qt 6.8 runtime | qrc fails to load | `--no-zstd`; smoke test on device; fallback to a 6.8 host rcc |
-| 4 | Password stored unencrypted in the DB on vfat (readable over USB mass storage by anyone with the device or its backups) | Credential exposure if the device is lost or shared | Use a revocable Nextcloud **app password** only; document the risk in README and setup screen text; never log or display it; never export it; provide "Forget account" that overwrites the stored value; no OS keystore exists on the device (VERIFY) |
+| 4 | Password stored unencrypted in the DB on vfat (readable over USB mass storage by anyone with the device or its backups) | Credential exposure if the device is lost or shared | Use a revocable Nextcloud **app password** only; document the risk in README and setup screen text; never log or display it; never export it; provide "Forget account" that overwrites the stored value (`secure_delete=ON`, backup file removed after migrations, verified by the T027 byte-scan test); no OS keystore exists on the device (VERIFY) |
 | 5 | Notes API behaviors assumed (If-Match on PUT/DELETE, title derivation, chunking) | Wrong conflict handling | Contract tests with recorded fixtures; live-server verification task; fallbacks in R-8 |
 | 6 | No usable device CA store | Setup always fails on HTTPS | Bundled CA file ships regardless; CA source shown in the test result |
 | 7 | vfat: weak locking, no atomic rename guarantees, power loss | DB corruption | `journal_mode=TRUNCATE`, `synchronous=FULL`, short transactions, integrity check at start with automatic backup copy of the DB before schema migrations |
 | 8 | Host lacks Qt `rcc`; SDK `rcc` unusable; SDK never relocated | Cannot build | Quickstart lists prerequisites (`qt6-base-dev-tools`, cmake, ninja or SDK's); core and tests build without Qt |
 | 9 | Server certificate expires or uses a private CA | Sync refused | Clear message; local use continues; private CAs and self-signed certificates are supported through `custom-ca.pem` (R-6) |
 | 10 | Large first pull (many notes) on slow Wi-Fi | Long sync, timeouts | Chunked listing if available; progress count in status; resumable (each note stored as it arrives) |
-| 11 | Title derivation mismatch between client and server | List shows one title, server another | Show server title once `void`; contract test against fixtures; derive locally only for pending notes |
+| 11 | Title derivation mismatch between client and server | The server's title can differ from the local derivation | The displayed title is always derived locally (`derive_title`); the server title is ignored; fixtures confirm the server still accepts the content |
 
 ## R-14. Naming and licensing mechanics
 
@@ -263,6 +273,6 @@ Results and errors:
   Volker von Einem). The README statement is required before the first public push (task T098).
   MIT is compatible with using InkFeed (MIT) patterns; the GPL-3.0 notes-android stays reference-only.
 - **Packaging/registration**: zip layout as InkFeed (`applications/pbnotes.app`,
-  `applications/pbnotes.bin`, `applications/icons/*.bmp`, `INSTALL.md`, bundled `cacert.pem`);
+  `applications/pbnotes.bin`, `applications/icons/*.bmp`, `INSTALL.md`, bundled `pbnotes-cacert.pem`);
   user registers the app in `system/config/desktop/view.json` (id starts with `U_`, absolute path,
   opaque 122x122 8-bit BMP icons) and reboots. GitHub Actions is deferred.

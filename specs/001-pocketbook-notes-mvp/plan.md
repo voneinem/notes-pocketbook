@@ -22,9 +22,10 @@ script, the ELF installed as `<app>.bin`, and icons. Working name for `<app>`: `
 **Language/Version**: C++17 (core, bridge, app); QML (Qt Quick 6.8); POSIX `sh` (launcher,
 packaging scripts); C (vendored SQLite amalgamation)
 
-**Primary Dependencies**: Qt 6.8.2 (Core, Gui, Qml, Quick, Network not needed by core; Concurrent
-optional) for the bridge/UI only; libcurl 8.16 (HTTPS, from SDK sysroot on device, system on host);
-SQLite (vendored amalgamation, pinned version); OpenSSL 3 (via libcurl); InkView (device glue only)
+**Primary Dependencies**: Qt 6.8.2 (Core, Gui, Qml, Quick; Concurrent optional) for the bridge and
+UI only, the core library uses no Qt; libcurl 7.85 or later (needed for the protocol restriction
+options; the SDK ships 8.16.0, the host uses its system package); SQLite (vendored amalgamation,
+pinned version); OpenSSL 3 (via libcurl); InkView (device glue only)
 
 **Storage**: SQLite file `/mnt/ext1/system/pbnotes/pbnotes.db` on device (vfat, so
 `journal_mode=TRUNCATE`); `./pbnotes-data/` on host. One account row, notes table, settings table.
@@ -145,7 +146,7 @@ README.md                      # build, install (view.json registration), passwo
 `bridge/` (Qt glue), `qml/` (UI), `app/` (entry point), plus `platform/pocketbook/` and `scripts/`
 for device packaging. `TARGET_TYPE=ARM` builds `notes_core`, `bridge`, and the `pbnotes` ELF
 (output `pbnotes.app` as in InkFeed, installed as `pbnotes.bin`). The host build builds
-`notes_core`, `notes_core_tests`, and optionally the full app for desktop use.
+`notes_core`, the test executables, and optionally the full app for desktop use.
 
 ## Complexity Tracking
 

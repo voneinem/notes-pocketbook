@@ -2,8 +2,8 @@
 
 SQLite database `pbnotes.db` (device: `/mnt/ext1/system/pbnotes/`, host: `./pbnotes-data/`).
 Pragmas on open: `journal_mode=TRUNCATE`, `synchronous=FULL`, `foreign_keys=ON`,
-`busy_timeout=5000`. Schema version in `PRAGMA user_version`. All writes happen in short
-transactions. Before any schema migration the file is copied to `pbnotes.db.bak`.
+`secure_delete=ON`, `busy_timeout=5000`. Schema version in `PRAGMA user_version`. All writes happen in short
+transactions. Before any schema migration the file is copied to `pbnotes.db.bak`; the backup is deleted as soon as the migration and an integrity check have succeeded, because it would otherwise hold a second plaintext copy of the account password.
 
 ## Entities
 
@@ -29,9 +29,9 @@ transactions. Before any schema migration the file is copied to `pbnotes.db.bak`
 | local_id | integer PK | autoincrement, never reused |
 | remote_id | integer, nullable, unique | null = never uploaded |
 | status | text | `void`, `edited`, `deleted` (see state machine) |
-| title | text | first non-empty line of `content`, trimmed; recomputed on every save while pending; replaced by the server's title once `void` after a push/pull |
+| title | text | first non-empty line of `content`, trimmed; recomputed whenever `content` changes (local save or pull); a title returned by the server is ignored and never stored or shown |
 | content | text | full note text (UTF-8), includes the title line |
-| category | text | empty string = uncategorized; no path separators beyond what the server accepts (validated, see below) |
+| category | text | empty string = uncategorized; `/` is allowed and shown as typed (flat list); validated, see below |
 | favorite | integer | 0/1 |
 | modified | integer | epoch seconds; set locally on save, replaced by the server value after push/pull |
 | etag | text, nullable | per-note ETag from the server; used as `If-Match` |
@@ -41,8 +41,9 @@ Indices: `(status)`, `(category)`, `(favorite)`, `(modified)`, `(remote_id)`.
 
 Validation rules (from the spec and API):
 - A new note whose content is empty or whitespace-only is not stored (FR-020).
-- `category` max 255 characters, no leading/trailing space, `/` allowed only as the server
-  allows (VERIFY); otherwise the editor shows "Invalid category" and keeps the previous value.
+- `category` max 255 characters, no leading/trailing space, no control characters (U+0000-U+001F,
+  U+007F); `/` is allowed. Otherwise the editor shows "Invalid category" and keeps the previous
+  value.
 - Title is never edited separately (FR-019).
 - Search matches case-insensitively on `title` and `content` (substring), implemented in the store
   with `LIKE` using an escape character, or with an application-side fold for non-ASCII text
@@ -97,6 +98,11 @@ Rules:
   transaction that sets status `void` (FR-036).
 - If the user changes a note while its push is in flight, the push result is stored but the note
   stays `edited` when content, category or favorite differ from what was sent.
+- A conflict is resolved in ONE transaction: the conflict copy is inserted first (and verified to
+  equal the local text byte-for-byte) and only then is the original replaced by the server version.
+  A failure rolls back both; the local text is never held in zero rows. If the local and server
+  versions are identical in content, category and favorite, no copy is created: the original just
+  becomes `void` with the server's etag and modified time, and no conflict is counted.
 
 ## Relationships
 
