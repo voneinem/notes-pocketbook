@@ -18,6 +18,7 @@ set(PBNOTES_CORE_SOURCES
     src/title.cpp
     src/text_clean.cpp
     src/edit_history.cpp
+    src/slash.cpp
     src/utf8.cpp
     src/ca_selector.cpp
     src/log.cpp

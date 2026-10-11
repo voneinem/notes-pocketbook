@@ -1,6 +1,11 @@
 // Spec 005 (contracts/qml-bridge.md): the clipboard bridge and the edit session. Plain QCoreApplication, so the
 // clipboard bridge uses its in-app buffer; the platform clipboard is checked on the reader (spike S-3).
+#include <cstdint>
+#include <fstream>
+#include <iterator>
+#include <set>
 #include <string>
+#include <vector>
 
 #include <QCoreApplication>
 #include <QObject>
@@ -295,6 +300,126 @@ PB_TEST(undoing_a_replayed_scenario_runs_in_reverse_order) {
         e.finishApply(QStringLiteral("T"), QStringLiteral("bodyX"));
     }
     PB_CHECK(!e.canRedo());
+}
+
+// ---- SlashBridge (spec 006, contracts/qml-bridge.md) ----------------------------------------------------------
+
+PB_TEST(the_slash_bridge_lists_the_twelve_entries_in_order) {
+    SlashBridge s;
+    const QVariantList e = s.entries();
+    PB_CHECK_EQ(e.size(), 12);
+    const char* ids[] = {"bullet_list", "table", "info_box", "link", "bold", "italic",
+                         "underline", "strikethrough", "details", "quote", "code_block", "emoji"};
+    for (int i = 0; i < 12; ++i) {
+        const QVariantMap m = e.at(i).toMap();
+        PB_CHECK_EQ(m.value("id").toString().toStdString(), std::string(ids[i]));
+        PB_CHECK(!m.value("label").toString().isEmpty());
+    }
+}
+
+PB_TEST(detect_reports_menu_datetime_or_none) {
+    SlashBridge s;
+    QVariantMap m = s.detect(QStringLiteral(""), QStringLiteral("/"), 1, -1);
+    PB_CHECK_EQ(str(m, "trigger").toStdString(), std::string("menu"));
+    PB_CHECK_EQ(m.value("pos").toInt(), 0);
+    m = s.detect(QStringLiteral("a"), QStringLiteral("a/"), 2, -1);
+    PB_CHECK_EQ(str(m, "trigger").toStdString(), std::string("none"));
+    m = s.detect(QStringLiteral("a /"), QStringLiteral("a //"), 4, 2);
+    PB_CHECK_EQ(str(m, "trigger").toStdString(), std::string("datetime"));
+    PB_CHECK_EQ(m.value("pos").toInt(), 3);
+}
+
+PB_TEST(expand_returns_the_replacement_and_ignores_unknown_ids_and_emoji) {
+    SlashBridge s;
+    const QVariantMap m = s.expand(QStringLiteral("code_block"), QStringLiteral("/"), 0, 1);
+    PB_CHECK_EQ(m.value("begin").toInt(), 0);
+    PB_CHECK_EQ(m.value("end").toInt(), 1);
+    PB_CHECK_EQ(str(m, "text").toStdString(), std::string("```\n\n```"));
+    PB_CHECK_EQ(m.value("caret").toInt(), 4);
+    PB_CHECK(s.expand(QStringLiteral("emoji"), QStringLiteral("/"), 0, 1).isEmpty());
+    PB_CHECK(s.expand(QStringLiteral("nope"), QStringLiteral("/"), 0, 1).isEmpty());
+    // out-of-range positions never crash and give nothing
+    PB_CHECK(s.expand(QStringLiteral("bold"), QStringLiteral("/"), 5, 1).isEmpty());
+}
+
+PB_TEST(replace_counts_utf16_units) {
+    SlashBridge s;
+    const QVariantMap m = s.replace(3, 1, QString::fromUtf8("\xF0\x9F\x99\x82"));
+    PB_CHECK_EQ(m.value("begin").toInt(), 3);
+    PB_CHECK_EQ(m.value("end").toInt(), 4);
+    PB_CHECK_EQ(m.value("caret").toInt(), 5);   // the emoji is two UTF-16 units
+}
+
+// The glyphs of a TrueType font, read from its cmap (formats 12 and 4), so no GUI application is needed.
+namespace {
+
+uint32_t be(const std::string& d, size_t at, int bytes) {
+    uint32_t v = 0;
+    for (int i = 0; i < bytes; ++i) v = (v << 8) | static_cast<unsigned char>(d.at(at + static_cast<size_t>(i)));
+    return v;
+}
+
+bool font_has_glyph(const std::string& font, uint32_t cp) {
+    const uint32_t tables = be(font, 4, 2);
+    size_t cmap = 0;
+    for (uint32_t i = 0; i < tables; ++i)
+        if (font.compare(12 + 16 * i, 4, "cmap") == 0) cmap = be(font, 12 + 16 * i + 8, 4);
+    if (cmap == 0) return false;
+    const uint32_t subtables = be(font, cmap + 2, 2);
+    for (uint32_t j = 0; j < subtables; ++j) {
+        const size_t sub = cmap + be(font, cmap + 4 + 8 * j + 4, 4);
+        const uint32_t format = be(font, sub, 2);
+        if (format == 12) {
+            const uint32_t groups = be(font, sub + 12, 4);
+            for (uint32_t g = 0; g < groups; ++g) {
+                const size_t at = sub + 16 + 12 * g;
+                if (cp >= be(font, at, 4) && cp <= be(font, at + 4, 4)) return true;
+            }
+            return false;
+        }
+    }
+    for (uint32_t j = 0; j < subtables && cp < 0x10000; ++j) {  // a font without format 12: format 4 covers the BMP
+        const size_t sub = cmap + be(font, cmap + 4 + 8 * j + 4, 4);
+        if (be(font, sub, 2) != 4) continue;
+        const uint32_t segs = be(font, sub + 6, 2) / 2;
+        for (uint32_t k = 0; k < segs; ++k) {
+            const uint32_t end = be(font, sub + 14 + 2 * k, 2);
+            const uint32_t start = be(font, sub + 16 + 2 * segs + 2 * k, 2);
+            if (cp >= start && cp <= end) return true;
+        }
+        return false;
+    }
+    return false;
+}
+
+}  // namespace
+
+PB_TEST(timestamp_and_days_in_month_follow_the_core_rules) {
+    SlashBridge s;
+    PB_CHECK_EQ(s.timestamp(2026, 10, 11, 14, 30).toStdString(), std::string("2026-10-11 14:30"));
+    PB_CHECK_EQ(s.timestamp(2026, 2, 31, 0, 0).toStdString(), std::string("2026-02-28 00:00"));
+    PB_CHECK_EQ(s.daysInMonth(2024, 2), 29);
+    PB_CHECK_EQ(s.daysInMonth(2100, 2), 28);
+}
+
+PB_TEST(the_emoji_grid_has_48_distinct_single_code_point_emojis_that_the_bundled_font_can_draw) {
+    SlashBridge s;
+    const QVariantList list = s.emojis();
+    PB_CHECK_EQ(list.size(), 48);
+    std::set<uint> seen;
+    std::vector<uint> code_points;
+    for (const QVariant& v : list) {
+        const QVector<uint> ucs4 = v.toString().toUcs4();
+        PB_CHECK_EQ(ucs4.size(), 1);                          // one code point: one tap, one character to delete
+        const uint cp = ucs4.at(0);
+        PB_CHECK(cp != 0xFE0F && cp != 0xFE0E && cp != 0x200D && !(cp >= 0x1F3FB && cp <= 0x1F3FF));  // no selector, joiner, skin tone
+        PB_CHECK(seen.insert(cp).second);                      // distinct
+        code_points.push_back(cp);
+    }
+    std::ifstream in(std::string(PBNOTES_SOURCE_DIR) + "/third_party/noto-emoji/NotoEmoji.ttf", std::ios::binary);
+    if (!in.good()) PB_SKIP("the bundled emoji font is not in the tree");
+    const std::string font((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
+    for (uint cp : code_points) PB_CHECK(font_has_glyph(font, cp));
 }
 
 int main(int argc, char** argv) {

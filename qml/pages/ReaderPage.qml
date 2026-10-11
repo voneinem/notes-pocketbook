@@ -14,6 +14,23 @@ Item {
 
     property string message: ""
 
+    // ---- <details> sections (spec 006): which ones the reader opened or closed this visit, by the section's key ----
+    // Absent = the state the note was written in (`<details open>`). Survives the reloads of the page, never stored.
+    property var openDetails: ({})
+    function isOpen(b) {
+        var v = openDetails[b.detailsId]
+        return v !== undefined ? v : b.detailsOpen === true
+    }
+    // the content of a closed section is not shown; the summary and everything outside a section always are
+    function shown(b) { return (b.detailsId === undefined || b.detailsId < 0) || b.kind === "summary" || isOpen(b) }
+    function toggleDetails(b) {
+        if (selectionTapGuard()) return   // a tap while a selection exists only ends the selection
+        var next = {}
+        for (var k in openDetails) next[k] = openDetails[k]
+        next[b.detailsId] = !isOpen(b)
+        openDetails = next
+    }
+
     function load() {
         clearSelection()   // a reload ends the selection (spec 005 FR-030)
         note = bridge.openNote(noteId)
@@ -35,7 +52,7 @@ Item {
     function unitIsText(u) {
         if (u < titleUnits) return true
         var k = note.blocks[u - titleUnits].kind
-        return k !== "tablerow" && k !== "attachment" && k !== "blank"
+        return k !== "tablerow" && k !== "attachment" && k !== "blank" && k !== "fence" && k !== "callout" && k !== "marker"
     }
     function unitLength(u) {
         var it = unitItem(u)
@@ -111,6 +128,13 @@ Item {
     function pointOf(u, offset, atEnd) {
         var it = unitItem(u)
         if (!it) return null
+        if (!it.visible || it.height <= 0) {   // closed content or a structural line: stand at the nearest unit that is shown
+            for (var v = u + (atEnd ? -1 : 1); v >= 0 && v < unitCount; v += atEnd ? -1 : 1) {
+                var w = unitItem(v)
+                if (w && w.visible && w.height > 0) { u = v; it = w; offset = atEnd ? unitLength(v) : 0; break }
+            }
+            if (!it.visible || it.height <= 0) return null
+        }
         var content = flick.contentItem
         if (unitIsText(u)) {
             var r = it.rectAt(offset)
@@ -127,7 +151,7 @@ Item {
         var best = 0
         for (var u = 0; u < unitCount; ++u) {
             var it = unitItem(u)
-            if (!it) continue
+            if (!it || !it.visible || it.height <= 0) continue   // closed content and structural lines have no place on the page
             if (it.mapToItem(flick.contentItem, 0, 0).y <= y) best = u
         }
         return best
@@ -202,7 +226,11 @@ Item {
         var list = []
         for (var i = 0; i < blocks.count; ++i) {
             var it = blocks.itemAt(i)
-            if (it && it.b.unsplittable) list.push({ top: body.y + it.y, bottom: body.y + it.y + it.height })
+            if (!it || !it.visible) continue
+            if (it.b.unsplittable) list.push({ top: body.y + it.y, bottom: body.y + it.y + it.height })
+            // keep with next (spec 006 FR-005): a heading and the first line below it stay on one page
+            else if (it.b.kind === "heading")
+                list.push({ top: body.y + it.y, bottom: body.y + it.y + it.height + Math.round(bridge.fontPx * 1.4) })
         }
         unsplittable = list
     }
@@ -294,6 +322,7 @@ Item {
 
     Flickable {
         id: flick
+        objectName: "flick"
         anchors { left: parent.left; right: parent.right; top: rule.bottom; bottom: footer.top }
         contentWidth: width
         contentHeight: body.implicitHeight + 40
@@ -329,6 +358,7 @@ Item {
                     readonly property var b: modelData
                     readonly property int unit: index + page.titleUnits
                     width: body.width
+                    visible: page.shown(b)
                     sourceComponent: b.kind === "tablerow" ? tableRow : (b.kind === "attachment" ? attachmentBlock : textBlock)
                     Component {
                         id: textBlock
@@ -336,6 +366,8 @@ Item {
                             width: ld.width
                             block: ld.b
                             fontPx: bridge.fontPx
+                            open: ld.b.kind === "summary" && page.isOpen(ld.b)
+                            onSummaryToggled: page.toggleDetails(ld.b)
                             onLinkActivated: function(link) { page.followLink(ld.b, link) }
                             onWordHeld: function(start, end) { page.wordHeld(ld.unit, start, end) }
                             onTapped: function(pos) { page.unitTapped(ld.unit, pos) }

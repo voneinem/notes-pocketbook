@@ -43,6 +43,9 @@ ApplicationWindow {
         Connections {
             target: device
             function onBackRequested() {
+                // a page with an open popup (the editor's "/" menu) takes Back for itself (spec 006 FR-009)
+                var page = nav.currentItem
+                if (page && page.backHandled && page.backHandled()) return
                 if (nav.depth > 1) {
                     Qt.inputMethod.hide()
                     nav.pop()

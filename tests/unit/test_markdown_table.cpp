@@ -134,6 +134,15 @@ PB_TEST(a_table_is_not_recognized_in_lists_quotes_fences_or_indented_code) {
     }
 }
 
+PB_TEST(a_fence_line_ends_a_table_whatever_its_kind) {
+    for (const char* fence : {"```", "~~~", "````"}) {
+        auto b = parse_markdown(std::string("| a |\n|---|\n| 1 |\n") + fence + "\n| x |\n" + fence);
+        PB_CHECK(b[0].kind == BlockKind::Table);
+        PB_CHECK_EQ(b[0].table.rows.size(), static_cast<size_t>(2));  // header and the one body row
+        PB_CHECK(b[1].kind == BlockKind::Fence);
+    }
+}
+
 PB_TEST(two_tables_in_one_note) {
     auto b = content_blocks("| a |\n|---|\n| 1 |\n\ntext\n\n| x | y |\n|---|---|\n| 2 | 3 |");
     int tables = 0;

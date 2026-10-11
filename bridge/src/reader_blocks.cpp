@@ -12,8 +12,11 @@ QString html_escape(const std::string& text) {
     return QString::fromStdString(text).toHtmlEscaped();
 }
 
+// <b><i><s><u>text</u></s></i></b>: the strike / underline flags sit inside the weight and slant (spec 006).
 QString styled(const pbnotes::Span& s) {
-    const QString t = html_escape(s.text);
+    QString t = html_escape(s.text);
+    if (s.underline) t = QStringLiteral("<u>") + t + QStringLiteral("</u>");
+    if (s.strike) t = QStringLiteral("<s>") + t + QStringLiteral("</s>");
     switch (s.kind) {
         case pbnotes::Span::Bold: return QStringLiteral("<b>") + t + QStringLiteral("</b>");
         case pbnotes::Span::Italic: return QStringLiteral("<i>") + t + QStringLiteral("</i>");
@@ -54,6 +57,11 @@ const char* block_kind(pbnotes::BlockKind k) {
         case pbnotes::BlockKind::Blank: return "blank";
         case pbnotes::BlockKind::Table: return "tablerow";
         case pbnotes::BlockKind::Attachment: return "attachment";
+        case pbnotes::BlockKind::Fence: return "fence";
+        case pbnotes::BlockKind::Code: return "code";
+        case pbnotes::BlockKind::Callout: return "callout";
+        case pbnotes::BlockKind::Summary: return "summary";
+        case pbnotes::BlockKind::Marker: return "marker";
         case pbnotes::BlockKind::Paragraph: break;
     }
     return "paragraph";
@@ -77,6 +85,28 @@ QVariantMap src_extent(const pbnotes::Block& b) {
     return m;
 }
 
+const char* callout_name(pbnotes::CalloutKind k) {
+    switch (k) {
+        case pbnotes::CalloutKind::Tip: return "tip";
+        case pbnotes::CalloutKind::Warning: return "warning";
+        case pbnotes::CalloutKind::Important: return "important";
+        case pbnotes::CalloutKind::Caution: return "caution";
+        case pbnotes::CalloutKind::Note: break;
+    }
+    return "note";
+}
+
+// Where the block sits (spec 006): inside a quote / info box (0, 1, 2) and its group edges, and the <details> section it
+// belongs to (-1 = none) with the section's initial state. Every entry carries them so the page can hide the content of
+// a closed section whatever it is (text, a table row, an attachment).
+void add_container_fields(QVariantMap* m, const pbnotes::Block& b) {
+    m->insert(QStringLiteral("quote"), static_cast<int>(b.quote));
+    m->insert(QStringLiteral("quoteFirst"), b.quote_first);
+    m->insert(QStringLiteral("quoteLast"), b.quote_last);
+    m->insert(QStringLiteral("detailsId"), b.details_id);
+    m->insert(QStringLiteral("detailsOpen"), b.details_open);
+}
+
 // A table becomes one block per row, so a page break can never fall inside a row.
 void append_table_rows(QVariantList* blocks, const pbnotes::Block& b, int block_index) {
     const pbnotes::TableData& t = b.table;
@@ -90,6 +120,7 @@ void append_table_rows(QVariantList* blocks, const pbnotes::Block& b, int block_
         m.insert(QStringLiteral("src"), src_extent(b));
         m.insert(QStringLiteral("line"), b.line_index + (r == 0 ? 0 : static_cast<int>(r) + 1));
         m.insert(QStringLiteral("unsplittable"), true);
+        add_container_fields(&m, b);
         m.insert(QStringLiteral("header"), r == 0);
         m.insert(QStringLiteral("lastRow"), r + 1 == t.rows.size());
         m.insert(QStringLiteral("weights"), weights);
@@ -147,6 +178,7 @@ QVariantMap attachment_block(const pbnotes::Block& b, int block_index, const pbn
     m.insert(QStringLiteral("src"), src_extent(b));
     m.insert(QStringLiteral("line"), b.line_index);
     m.insert(QStringLiteral("unsplittable"), true);
+    add_container_fields(&m, b);
 
     std::string name = ref.name;
     if (name.empty() && !ref.path.empty()) name = pbnotes::attachment_file_name(ref.path);
@@ -218,6 +250,13 @@ QVariantList reader_blocks(const pbnotes::Note& note, const pbnotes::NoteStore* 
         m.insert(QStringLiteral("depth"), b.depth);
         m.insert(QStringLiteral("task"), b.is_task);
         m.insert(QStringLiteral("checked"), b.checked);
+        add_container_fields(&m, b);
+        m.insert(QStringLiteral("callout"), b.kind == pbnotes::BlockKind::Callout ? QString::fromLatin1(callout_name(b.callout)) : QString());
+        m.insert(QStringLiteral("codeFirst"), b.code_first);
+        m.insert(QStringLiteral("codeLast"), b.code_last);
+        // a line of a code box (or an edge of it) is never cut by a page break (spec 006 FR-004)
+        if (b.kind == pbnotes::BlockKind::Fence || b.kind == pbnotes::BlockKind::Code)
+            m.insert(QStringLiteral("unsplittable"), true);
         QVariantList links;
         m.insert(QStringLiteral("html"), spans_to_html(b.spans, &links));
         m.insert(QStringLiteral("links"), links);

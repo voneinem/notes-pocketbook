@@ -248,4 +248,67 @@ PB_TEST(observing_in_a_large_text_is_fast) {
     PB_CHECK(ms < 1000);
 }
 
+// ---- spec 006 (research R-8): a group opened before the typed "/" makes the insertion one step ----
+
+PB_TEST(a_group_across_the_typed_slash_and_the_replacement_is_one_undo_step) {
+    EditHistory h = opened(u"ab");
+    h.begin_group(EditField::Text);              // opened when the "/" is detected, before it is reported
+    h.observe(EditField::Text, u"ab/", 1000);    // the typed "/"
+    h.observe(EditField::Text, u"ab//", 1100);   // a second "/" (the date-time trigger)
+    h.observe(EditField::Text, u"ab2026-10-11 14:30", 5000);  // the picker's Insert replaced "//"
+    h.end_group();
+    PB_CHECK_EQ(h.undo_size(), static_cast<size_t>(1));
+    auto a = h.undo();
+    PB_CHECK(a.has_value());
+    PB_CHECK_EQ(a->pos, static_cast<size_t>(2));
+    PB_CHECK_EQ(a->remove_len, static_cast<size_t>(16));
+    PB_CHECK(a->insert.empty());
+    PB_CHECK(!h.can_undo());                      // back at the opened text: "ab"
+    auto r = h.redo();
+    PB_CHECK(r.has_value());
+    PB_CHECK(r->insert == u"2026-10-11 14:30");
+}
+
+PB_TEST(a_dismissed_slash_group_is_an_ordinary_step_that_later_typing_does_not_merge_into) {
+    EditHistory h = opened(u"a ");
+    h.begin_group(EditField::Text);
+    h.observe(EditField::Text, u"a /", 1000);
+    h.end_group();                                // the menu was dismissed
+    PB_CHECK_EQ(h.undo_size(), static_cast<size_t>(1));
+    h.observe(EditField::Text, u"a /x", 1100);    // typing goes on right away
+    PB_CHECK_EQ(h.undo_size(), static_cast<size_t>(2));   // not merged into the "/" step
+    auto a = h.undo();
+    PB_CHECK(a.has_value());
+    PB_CHECK_EQ(a->remove_len, static_cast<size_t>(1));   // only the "x"
+    PB_CHECK(h.can_undo());
+}
+
+PB_TEST(a_slash_group_does_not_merge_with_earlier_typing) {
+    EditHistory h = opened(u"");
+    int64_t t = 0;
+    std::u16string v = type(h, u"", u"hello ", &t, 50);
+    PB_CHECK_EQ(h.undo_size(), static_cast<size_t>(1));   // "hello " typed in one step
+    h.begin_group(EditField::Text);
+    h.observe(EditField::Text, v + u"/", t);
+    h.observe(EditField::Text, v + u"```\n\n```", t + 10);
+    h.end_group();
+    PB_CHECK_EQ(h.undo_size(), static_cast<size_t>(2));
+    auto a = h.undo();
+    PB_CHECK_EQ(a->remove_len, static_cast<size_t>(8));   // the inserted fence only, "hello " stays
+    PB_CHECK(h.can_undo());
+}
+
+PB_TEST(undo_with_a_group_open_ends_the_group_first) {
+    EditHistory h = opened(u"ab");
+    h.begin_group(EditField::Text);
+    h.observe(EditField::Text, u"ab/", 1000);
+    auto a = h.undo();                            // the editor's long-press menu does this
+    PB_CHECK(a.has_value());
+    PB_CHECK(a->insert.empty());
+    PB_CHECK_EQ(a->remove_len, static_cast<size_t>(1));
+    h.finish_apply(u"T", u"ab");
+    PB_CHECK(!h.can_undo());
+    PB_CHECK(h.can_redo());
+}
+
 PB_TEST_MAIN()

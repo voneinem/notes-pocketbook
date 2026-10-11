@@ -116,6 +116,7 @@ int main(int argc, char** argv) {
     AboutBridge about(about_config);
     ClipboardBridge clipboard;
     EditSession editSession;
+    SlashBridge slash;
 
     QQmlApplicationEngine engine;
     int qml_warnings = 0;
@@ -129,6 +130,7 @@ int main(int argc, char** argv) {
     engine.rootContext()->setContextProperty(QStringLiteral("about"), &about);
     engine.rootContext()->setContextProperty(QStringLiteral("clipboard"), &clipboard);
     engine.rootContext()->setContextProperty(QStringLiteral("editSession"), &editSession);
+    engine.rootContext()->setContextProperty(QStringLiteral("slash"), &slash);
     if (notes.store())  // the engine owns the provider
         engine.addImageProvider(QStringLiteral("attachment"), new AttachmentImageProvider(notes.store(), config.attachmentsDir));
     // Desktop-only start options (PBNOTES_START_PAGE / PBNOTES_START_NOTE); both are always defined,

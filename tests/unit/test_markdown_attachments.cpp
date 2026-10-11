@@ -113,6 +113,17 @@ PB_TEST(a_reference_in_a_code_fence_stays_literal) {
     PB_CHECK_EQ(plain(b[1]), std::string("![x](.attachments.1/a.png)"));
 }
 
+PB_TEST(references_in_tilde_fences_stay_literal_and_one_after_the_closer_is_found) {
+    auto b = content_blocks("~~~\n![x](.attachments.1/a.png)\n~~~\n![y](.attachments.1/b.png)");
+    int attachments = 0;
+    for (const auto& x : b) attachments += x.kind == BlockKind::Attachment;
+    PB_CHECK_EQ(attachments, 1);
+    PB_CHECK_EQ(b[1].kind == BlockKind::Code, true);
+    PB_CHECK_EQ(plain(b[1]), std::string("![x](.attachments.1/a.png)"));
+    PB_CHECK_EQ(pbnotes::find_attachment_refs("~~~\n![x](.attachments.1/a.png)\n~~~\n![y](.attachments.1/b.png)").size(),
+                static_cast<size_t>(1));
+}
+
 PB_TEST(a_reference_in_a_list_item_follows_the_item) {
     auto b = content_blocks("- item text ![x](.attachments.1/a.png)\n- [ ] task ![y](pbatt:2)");
     PB_CHECK_EQ(b.size(), static_cast<size_t>(4));

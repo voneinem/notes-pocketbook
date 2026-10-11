@@ -195,8 +195,9 @@ EditApplied EditHistory::apply(const Step& step, bool undoing) {
 }
 
 std::optional<EditApplied> EditHistory::undo() {
-    if (!active_ || undo_.empty()) return std::nullopt;
-    end_group();
+    if (!active_) return std::nullopt;
+    end_group();  // an open group (a typed "/" waiting for its menu) becomes a step first, so it can be undone
+    if (undo_.empty()) return std::nullopt;
     Step step = std::move(undo_.back());
     undo_.pop_back();
     chars_ -= step.removed.size() + step.inserted.size();

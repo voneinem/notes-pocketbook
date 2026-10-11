@@ -27,6 +27,10 @@ public:
         QTest::mouseMove(window, pt(x, y));
     }
     Q_INVOKABLE void release(double x, double y) { QTest::mouseRelease(window, Qt::LeftButton, Qt::NoModifier, pt(x, y)); }
+    // typed characters, as the focused item receives them from a keyboard (spec 006: the "/" menu watches typing)
+    Q_INVOKABLE void type(const QString& text) {
+        for (const QChar c : text) QTest::keyClick(window, c.toLatin1());
+    }
     // a picture of the window, for looking at a state by hand (optional context property `arg_shot` in a driver)
     Q_INVOKABLE bool shot(const QString& path) {
         auto* w = qobject_cast<QQuickWindow*>(window.data());
@@ -53,6 +57,7 @@ int main(int argc, char** argv) {
 
     ClipboardBridge clipboard;
     EditSession editSession;
+    SlashBridge slash;
     // Stubs of the objects the pages talk to (the real NotesBridge needs a store and a server).
     QQmlComponent stubs(&engine, QUrl::fromLocalFile(QStringLiteral(PBNOTES_QML_TEST_DIR "/stubs.qml")));
     QObject* stub = stubs.create();
@@ -66,6 +71,7 @@ int main(int argc, char** argv) {
     ctx->setContextProperty(QStringLiteral("device"), stub->property("device").value<QObject*>());
     ctx->setContextProperty(QStringLiteral("clipboard"), &clipboard);
     ctx->setContextProperty(QStringLiteral("editSession"), &editSession);
+    ctx->setContextProperty(QStringLiteral("slash"), &slash);
     Pointer pointer;
     ctx->setContextProperty(QStringLiteral("pointer"), &pointer);
     ctx->setContextProperty(QStringLiteral("pageUrl"), QUrl::fromLocalFile(QString::fromLocal8Bit(argv[2])));

@@ -14,6 +14,9 @@
         <file>SelectionHandle.qml</file>
         <file>SelectionHandles.qml</file>
         <file>SelectionMenu.qml</file>
+        <file>SlashMenu.qml</file>
+        <file>DateTimePicker.qml</file>
+        <file>EmojiPicker.qml</file>
         <file>pages/SetupPage.qml</file>
         <file>pages/NoteListPage.qml</file>
         <file>pages/ReaderPage.qml</file>

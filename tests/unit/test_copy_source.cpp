@@ -113,4 +113,70 @@ PB_TEST(a_block_selected_entirely_keeps_its_indentation) {
     PB_CHECK_EQ(copy("  - item", 0, 0, 0, 4), std::string("  - item"));
 }
 
+// ---- spec 006: fenced code blocks ----
+
+PB_TEST(a_whole_code_block_copies_its_fences_language_and_code_exactly) {
+    const std::string t = "intro\n```yaml\na: 1\n  b: **x**\n```\nafter";  // blocks: intro, Fence, Code, Code, Fence, after
+    PB_CHECK_EQ(copy(t, 0, 0, 5, 5), t);
+    PB_CHECK_EQ(copy(t, 1, 0, 4, 0), std::string("```yaml\na: 1\n  b: **x**\n```"));
+}
+
+PB_TEST(a_range_inside_code_copies_only_the_selected_characters) {
+    const std::string t = "intro\n```yaml\na: 1\n  b: **x**\n```\nafter";
+    PB_CHECK_EQ(copy(t, 2, 3, 3, 5), std::string("1\n  b: "));
+    PB_CHECK_EQ(copy(t, 3, 5, 3, 10), std::string("**x**"));  // literal text, not an element with marks
+    PB_CHECK_EQ(copy(t, 3, 7, 3, 8), std::string("x"));
+    PB_CHECK_EQ(copy(t, 3, 0, 3, 10), std::string("  b: **x**"));  // selected entirely: the line, indentation included
+}
+
+PB_TEST(a_fence_line_is_a_whole_unit_copied_as_written) {
+    const std::string t = "intro\n```yaml\na: 1\n```\nafter";
+    PB_CHECK_EQ(copy(t, 1, 0, 1, 0), std::string("```yaml"));
+    PB_CHECK_EQ(copy(t, 3, 0, 3, 0), std::string("```"));
+    PB_CHECK_EQ(copy("~~~\nx\n~~~", 0, 0, 0, 0), std::string("~~~"));
+}
+
+PB_TEST(an_empty_line_inside_code_is_an_empty_line_in_the_copy) {
+    const std::string t = "```\na\n\nb\n```";
+    PB_CHECK_EQ(copy(t, 1, 0, 3, 1), std::string("a\n\nb"));
+}
+
+// ---- spec 006 US4: quotes, info boxes, details, strikethrough, underline ----
+
+PB_TEST(a_quote_line_copies_its_marker_only_when_selected_entirely) {
+    const std::string t = "> hello world";
+    PB_CHECK_EQ(copy(t, 0, 0, 0, 11), std::string("> hello world"));
+    PB_CHECK_EQ(copy(t, 0, 6, 0, 11), std::string("world"));
+    PB_CHECK_EQ(copy("> a\n> b", 0, 0, 1, 1), std::string("> a\n> b"));
+}
+
+PB_TEST(an_info_header_is_a_whole_unit_copied_as_written) {
+    const std::string t = "> [!NOTE]\n> text";
+    PB_CHECK_EQ(copy(t, 0, 0, 0, 0), std::string("> [!NOTE]"));
+    PB_CHECK_EQ(copy(t, 0, 0, 1, 4), t);
+}
+
+PB_TEST(a_section_copies_all_its_lines_whether_or_not_it_is_shown_open) {
+    const std::string t = "<details>\n<summary>S</summary>\nbody\n</details>";  // Marker, Summary, body, Marker
+    PB_CHECK_EQ(copy(t, 0, 0, 3, 0), t);
+    PB_CHECK_EQ(copy(t, 0, 0, 0, 0), std::string("<details>"));
+    PB_CHECK_EQ(copy(t, 3, 0, 3, 0), std::string("</details>"));
+    PB_CHECK_EQ(copy(t, 1, 0, 1, 1), std::string("<summary>S</summary>"));   // the summary line entirely
+    PB_CHECK_EQ(copy("<details>\n<summary>Sum text</summary>\nx\n</details>", 1, 1, 1, 5), std::string("um t"));
+}
+
+PB_TEST(a_struck_run_brings_its_marks_only_when_selected_completely) {
+    const std::string t = "a ~~struck text~~ b";   // displayed "a struck text b"
+    PB_CHECK_EQ(copy(t, 0, 2, 0, 13), std::string("~~struck text~~"));
+    PB_CHECK_EQ(copy(t, 0, 2, 0, 14), std::string("~~struck text~~ "));
+    PB_CHECK_EQ(copy(t, 0, 9, 0, 13), std::string("text"));
+    PB_CHECK_EQ(copy(t, 0, 2, 0, 8), std::string("struck"));
+}
+
+PB_TEST(an_underlined_run_brings_its_tags_only_when_selected_completely) {
+    const std::string t = "<u>under</u> x";   // displayed "under x"
+    PB_CHECK_EQ(copy(t, 0, 0, 0, 5), std::string("<u>under</u>"));
+    PB_CHECK_EQ(copy(t, 0, 1, 0, 4), std::string("nde"));
+}
+
 PB_TEST_MAIN()

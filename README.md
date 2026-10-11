@@ -10,7 +10,7 @@ when you are on Wi-Fi.
 > software; it works for the author.
 >
 > - **Works on the device (MVP):** setup with a connection test, note list with views, sorting and
->   search, reader (basic Markdown, task checkboxes, font size), editor with explicit save, offline
+>   search, reader (Markdown, task checkboxes, font size), editor with explicit save, offline
 >   create/edit/delete, manual and start-time sync, and conflict handling that keeps both
 >   versions. The device results are recorded in [research.md](specs/001-pocketbook-notes-mvp/research.md)
 >   (R-15 to R-20).
@@ -24,6 +24,10 @@ when you are on Wi-Fi.
 >   and copy text the same way. Implemented
 >   and covered by host tests (including the real QML pages driven offscreen); the device checks are open, see
 >   [device-results.md](specs/005-text-editing-reader-title/checklists/device-results.md).
+> - **Better Markdown and the "/" menu (feature 006):** code blocks, clearer headings, quotes, info boxes, strikethrough,
+>   underline and collapsible details on the reading page; a "/" menu, a "//" date-time picker and an emoji grid in the
+>   editor. Implemented and covered by host tests (including the real QML pages driven offscreen); the device checks
+>   are open, see [quickstart](specs/006-markdown-slash-menu/quickstart.md).
 > - **Tested on the host:** the Qt-free core, the bridge and the QML pages are covered by automated
 >   tests. Run `scripts/pre-merge.sh` to build, run them and check for secrets.
 > - **Not verified:** the Notes API details that need a live server (the fixtures in
@@ -127,6 +131,23 @@ way: long-press a word, drag the markers (also across blocks), choose **Copy** i
 source text on the clipboard (a completely selected heading, bold phrase or link brings its marks, a partly selected one
 does not). The page stays read-only. Details: [spec.md](specs/005-text-editing-reader-title/spec.md),
 [quickstart](specs/005-text-editing-reader-title/quickstart.md).
+
+### Better Markdown and the "/" menu
+
+Details: [spec.md](specs/006-markdown-slash-menu/spec.md), [quickstart](specs/006-markdown-slash-menu/quickstart.md).
+
+- **Reading.** Fenced **code blocks** (three or more backticks or tildes, optional language such as `yaml`) are shown as
+  one boxed area in fixed-width type with every line and space as written; nothing inside is formatted and no link in it
+  can be followed. `#` to `######` headings get distinct sizes, and a heading is never the last line of a page.
+  `**bold**`, `~~strikethrough~~` and `<u>underline</u>`; **quotes** (`> `) with a bar at the left; **info boxes**
+  (`> [!NOTE]`, also `[!TIP]`, `[!WARNING]`, `[!IMPORTANT]`, `[!CAUTION]`) in a box that names its kind in words; and
+  collapsible **`<details>`** sections that show only their `<summary>` line until you tap it.
+- **Writing.** In the editor, typing **`/`** at the start of a line or after a space opens a list of twelve formats next to
+  the caret: bullet list, table, info box, link, bold, italic, underline, strikethrough, details, quote, code block, emoji.
+  Choosing one inserts its Markdown with the caret where you continue typing; `a/b`, `1/2` and `https://` are not
+  affected, and the Title field has no menu. **`//`** opens a date-time picker (it starts at now; Insert writes
+  `YYYY-MM-DD HH:MM`), and *Emoji* opens a grid of 48 common emojis. Each insertion is one Undo step. Notes stay plain
+  Markdown: other apps show the same text, in their own way.
 
 ## Security notes
 

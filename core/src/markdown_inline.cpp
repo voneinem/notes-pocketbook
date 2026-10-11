@@ -20,12 +20,6 @@ std::string plain_of(const std::vector<Span>& spans) {
     return s;
 }
 
-bool has_link(const std::vector<Span>& spans) {
-    for (const auto& sp : spans)
-        if (!sp.url.empty()) return true;
-    return false;
-}
-
 // Length of the run of `c` starting at s[i].
 size_t run_length(const std::string& s, size_t i, char c) {
     size_t n = 0;
@@ -141,19 +135,13 @@ size_t bare_address_end(const std::string& s, size_t i) {
 // over the extents of what is inside it).
 void add_link(std::vector<Span>* out, const std::vector<Span>& inner, const std::string& url, int el_begin, int el_end) {
     const bool confirm = link_needs_confirmation(plain_of(inner), url);
-    for (const auto& sp : inner) add_span(out, sp.kind, sp.text, url, confirm, &sp.src, el_begin, el_end);
+    for (const auto& sp : inner) add_span(out, sp.kind, sp.text, url, confirm, &sp.src, el_begin, el_end, sp.strike, sp.underline);
 }
 
 // The source index of every byte of `n` bytes that start at `from` (text copied verbatim from the source).
 std::vector<int> run_of(int from, size_t n) {
     std::vector<int> v(n);
     for (size_t k = 0; k < n; ++k) v[k] = from + static_cast<int>(k);
-    return v;
-}
-
-std::vector<int> src_of(const std::vector<Span>& spans) {
-    std::vector<int> v;
-    for (const auto& sp : spans) v.insert(v.end(), sp.src.begin(), sp.src.end());
     return v;
 }
 
@@ -222,10 +210,43 @@ void parse_inline(const std::string& s, std::vector<Span>* out, int depth, bool 
                 flush();
                 const int eb = base + static_cast<int>(i), ee = base + static_cast<int>(end);
                 if (links && is_followable_url(target)) add_link(out, inner, target, eb, ee);
-                else for (const auto& sp : inner) add_span(out, sp.kind, sp.text, std::string(), false, &sp.src, eb, ee);
+                else for (const auto& sp : inner) add_span(out, sp.kind, sp.text, std::string(), false, &sp.src, eb, ee, sp.strike, sp.underline);
                 i = end;
                 continue;
             }
+        } else if (c == '<' && depth < 2 && s.compare(i, 3, "<u>") == 0) {  // <u>underline</u> (spec 006)
+            const size_t close = s.find("</u>", i + 3);
+            bool blank = true;
+            for (size_t k = i + 3; close != std::string::npos && k < close; ++k) blank = blank && is_space(s[k]);
+            if (close != std::string::npos && !blank) {
+                std::vector<Span> inner;
+                parse_inline(s.substr(i + 3, close - i - 3), &inner, depth + 1, links, base + static_cast<int>(i) + 3);
+                flush();
+                const int eb = base + static_cast<int>(i), ee = base + static_cast<int>(close) + 4;
+                for (const auto& sp : inner)
+                    add_span(out, sp.kind, sp.text, sp.url, sp.link_confirm, &sp.src, eb, ee, sp.strike, true);
+                i = close + 4;
+                continue;
+            }
+        } else if (c == '~' && depth < 2) {  // ~~strikethrough~~ (spec 006): exactly two tildes on both sides
+            const size_t run = run_length(s, i, c);
+            const size_t after = i + run;
+            if (run == 2 && after < s.size() && !is_space(s[after])) {
+                const size_t close = find_closer(s, after, c, 2);
+                if (close != std::string::npos && close > after) {
+                    std::vector<Span> inner;
+                    parse_inline(s.substr(after, close - after), &inner, depth + 1, links, base + static_cast<int>(after));
+                    flush();
+                    const int eb = base + static_cast<int>(i), ee = base + static_cast<int>(close) + 2;
+                    for (const auto& sp : inner)
+                        add_span(out, sp.kind, sp.text, sp.url, sp.link_confirm, &sp.src, eb, ee, true, sp.underline);
+                    i = close + 2;
+                    continue;
+                }
+            }
+            for (size_t k = 0; k < run; ++k) add(c, i + k, 1);
+            i += run;
+            continue;
         } else if (c == '<' && links && starts_with_scheme(s, i + 1)) {  // <https://autolink>
             const size_t e = s.find('>', i + 1);
             if (e != std::string::npos) {
@@ -262,12 +283,9 @@ void parse_inline(const std::string& s, std::vector<Span>* out, int depth, bool 
                     flush();
                     const Span::Kind kind = r == 1 ? Span::Italic : r == 2 ? Span::Bold : Span::BoldItalic;
                     const int eb = base + static_cast<int>(i), ee = base + static_cast<int>(close + r);
-                    if (has_link(inner)) {  // keep the links, the outer emphasis wins
-                        for (const auto& sp : inner) add_span(out, kind, sp.text, sp.url, sp.link_confirm, &sp.src, eb, ee);
-                    } else {
-                        const std::vector<int> flat = src_of(inner);
-                        add_span(out, kind, plain_of(inner), std::string(), false, &flat, eb, ee);
-                    }
+                    // the outer emphasis wins over the kinds inside; links and the strike / underline flags are kept
+                    for (const auto& sp : inner)
+                        add_span(out, kind, sp.text, sp.url, sp.link_confirm, &sp.src, eb, ee, sp.strike, sp.underline);
                     i = close + r;
                     continue;
                 }
@@ -285,10 +303,11 @@ void parse_inline(const std::string& s, std::vector<Span>* out, int depth, bool 
 }  // namespace
 
 void add_span(std::vector<Span>* spans, Span::Kind kind, const std::string& text, const std::string& url,
-              bool link_confirm, const std::vector<int>* src, int el_begin, int el_end) {
+              bool link_confirm, const std::vector<int>* src, int el_begin, int el_end, bool strike, bool underline) {
     if (text.empty()) return;
     if (!spans->empty() && spans->back().kind == kind && spans->back().url == url &&
-        spans->back().link_confirm == link_confirm) {
+        spans->back().link_confirm == link_confirm && spans->back().strike == strike &&
+        spans->back().underline == underline) {
         Span& back = spans->back();
         back.text += text;
         if (src) back.src.insert(back.src.end(), src->begin(), src->end());
@@ -302,6 +321,8 @@ void add_span(std::vector<Span>* spans, Span::Kind kind, const std::string& text
         sp.text = text;
         sp.url = url;
         sp.link_confirm = link_confirm;
+        sp.strike = strike;
+        sp.underline = underline;
         if (src) sp.src = *src;
         sp.el_begin = el_begin;
         sp.el_end = el_end;
@@ -415,7 +436,8 @@ std::vector<Span> cell_spans(const std::string& text) {
         if (seg.is_ref) {
             add_span(&spans, Span::Plain, seg.ref.name);
         } else {
-            for (const Span& sp : inline_spans(seg.text)) add_span(&spans, sp.kind, sp.text, sp.url, sp.link_confirm);
+            for (const Span& sp : inline_spans(seg.text))
+                add_span(&spans, sp.kind, sp.text, sp.url, sp.link_confirm, nullptr, -1, -1, sp.strike, sp.underline);
         }
     }
     return spans;

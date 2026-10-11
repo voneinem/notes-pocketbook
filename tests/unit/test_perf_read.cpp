@@ -67,7 +67,7 @@ PB_TEST(a_rich_note_with_a_big_table_many_links_and_emojis_parses_quickly) {
 
 PB_TEST(hostile_lines_are_parsed_in_linear_time) {
     // many openers and no closers: without a cap every opener would scan to the end of the line
-    for (const std::string& unit : {std::string("["), std::string("*a "), std::string("![x]("), std::string("`"), std::string("| a ")}) {
+    for (const std::string& unit : {std::string("["), std::string("*a "), std::string("![x]("), std::string("`x "), std::string("| a "), std::string("~~a "), std::string("<u>")}) {
         std::string line;
         for (int i = 0; i < 60000; ++i) line += unit;
         const auto t0 = std::chrono::steady_clock::now();
@@ -81,6 +81,21 @@ PB_TEST(hostile_lines_are_parsed_in_linear_time) {
         PB_CHECK_EQ(blocks[0].spans.size(), static_cast<size_t>(1));
         PB_CHECK_EQ(blocks[0].spans[0].text, line);
     }
+}
+
+PB_TEST(hostile_quote_and_details_lines_are_parsed_in_linear_time) {
+    // a quote line, a long run of quote markers, and thousands of details lines in one note
+    std::string text;
+    for (int i = 0; i < 30000; ++i) text += "> ";
+    text += "\n";
+    for (int i = 0; i < 20000; ++i) text += "<details>\n<summary>s</summary>\n</details>\n> [!NOTE]\n> x\n";
+    const auto t0 = std::chrono::steady_clock::now();
+    const auto blocks = pbnotes::parse_markdown(text);
+    const auto refs = pbnotes::find_attachment_refs(text);
+    const auto ms = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - t0).count();
+    PB_CHECK(blocks.size() > 100000);
+    PB_CHECK(refs.empty());
+    PB_CHECK(ms < 2000);
 }
 
 PB_TEST_MAIN()

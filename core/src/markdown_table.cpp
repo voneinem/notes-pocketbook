@@ -62,7 +62,7 @@ bool delimiter_cell(const std::string& c, TableData::Align* align) {
 bool ends_table(const std::string& line) {
     const std::string t = trim(line);
     if (t.empty() || t[0] == '>') return true;
-    if (t.compare(0, 3, "```") == 0) return true;
+    if (open_fence(line)) return true;
     size_t h = 0;
     while (h < t.size() && t[h] == '#') ++h;
     return h >= 1 && h <= 6 && h < t.size() && t[h] == ' ';

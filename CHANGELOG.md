@@ -4,6 +4,22 @@ One entry per release, newest first. The heading is the content of `VERSION`; th
 `v<version>` after the merge. `scripts/check-version-bump.sh` (part of `scripts/pre-merge.sh`) fails when a
 branch changes the product without raising `VERSION` and adding the entry here.
 
+## 1.3.0
+
+- Reading page: **fenced code blocks** (backtick or tilde fences, optional language such as `yaml`) are shown as one boxed
+  area in fixed-width type with every line and space as written, long lines wrapped and no line cut by a page break;
+  nothing inside is formatted and no link in it can be followed. **Headings** `#` to `######` get clearly different sizes
+  and a heading is never left alone at the bottom of a page. New formats: `~~strikethrough~~`, `<u>underline</u>`,
+  **quotes** (`> ` with a bar at the left), **info boxes** (`> [!NOTE]`, `[!TIP]`, `[!WARNING]`, `[!IMPORTANT]`,
+  `[!CAUTION]`, labelled in words) and collapsible **`<details>` sections** that open and close by a tap on their summary.
+  Copying from the reading page returns the note's own text with these marks.
+- Editor: typing **`/`** at the start of a line or after a space opens a list of twelve formats (bullet list, table, info
+  box, link, bold, italic, underline, strikethrough, details, quote, code block, emoji) next to the caret; choosing one
+  inserts its Markdown with the caret where typing continues. `//` opens a **date-time picker** (starts at now, writes
+  `YYYY-MM-DD HH:MM`) and *Emoji* a grid of 48 emojis. Each insertion is one Undo step; Back closes only an open popup.
+- A fence line, a task box or an attachment reference inside a code block of either kind is treated the same everywhere
+  (reader, attachments, task toggling, tables). Notes are stored and synced unchanged: no schema, setting or sync change.
+
 ## 1.2.0
 
 - Editing tools in a context menu, like the reader's own: a long press on a word selects it and shows two draggable

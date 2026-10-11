@@ -123,4 +123,54 @@ PB_TEST(unicode_and_special_characters_survive_the_round_trip) {
     (void)id;
 }
 
+// Spec 006 FR-019 / SC-006: the new formats are only a way of showing and inserting ordinary text. A note that holds all of
+// them, and text that merely looks like them, is stored, pushed and pulled byte for byte, and the parser copes with it.
+PB_TEST(every_new_format_round_trips_byte_for_byte) {
+    Env e;
+    std::string text =
+        "# Heading 1\n## Heading 2\n### Heading 3\n#### Four\n##### Five\n###### Six\n#tag is not a heading\n"
+        "Plain **bold** and *italic* and ~~gone~~ and <u>under</u> and **~~both~~** text, a stray ** here\n"
+        "```yaml\nkey:\n  nested: **not bold**\n  # not a heading\n```\n"
+        "~~~\n![x](.attachments.1/a.png) in a tilde fence\n~~~\n"
+        "> a quote\n> - with a list\n>\n> [!NOTE] same line, not an info box\n\n"
+        "> [!NOTE]\n> note text\n\n> [!tip]\n> tip text\n\n> [!WARNING]\n> warning text\n\n"
+        "> [!IMPORTANT]\n> important text\n\n> [!CAUTION]\n> caution text\n\n"
+        "<details>\n<summary>Open me</summary>\n\nhidden **text**\n\n```\n</details>\n```\n\n</details>\n"
+        "<details open>\nno summary line\n</details>\n"
+        "<details>\n<details>\nnested stays text\n</details>\nafter\n"
+        "| a | b |\n|---|---|\n| ~~c~~ | <u>d</u> |\n"
+        "- [ ] task ~~struck~~\n"
+        "an unclosed fence follows\n```\nnever closed <details> </details> > [!NOTE]\n";
+    auto id = e.store->create_local("All formats", text, "", false, 1000).local_id;
+    PB_CHECK_EQ(e.store->get(id)->content, text);
+    PB_CHECK(e.run().outcome == SyncOutcome::Success);
+    PB_CHECK_EQ(e.server.notes.at(1).content, text);
+    Env other;
+    other.server.notes = e.server.notes;
+    other.server.next_id = e.server.next_id;
+    other.run();
+    PB_CHECK_EQ(other.store->get_by_remote_id(1)->content, text);
+    // the attachment reference in the tilde fence and in the unclosed fence is code, not an attachment
+    PB_CHECK_EQ(pbnotes::find_attachment_refs(text).size(), static_cast<size_t>(0));
+    const auto blocks = pbnotes::parse_markdown(text);
+    PB_CHECK(blocks.size() > 40);
+    for (size_t i = 0; i < blocks.size(); ++i) {
+        PB_CHECK(blocks[i].line_index >= 0);
+        if (i > 0) PB_CHECK(blocks[i].line_index >= blocks[i - 1].line_index);
+    }
+}
+
+PB_TEST(very_long_lines_of_every_new_format_are_parsed_without_loss) {
+    const std::string big(20000, 'x');
+    for (const std::string& line : {"> " + big, "> [!NOTE] " + big, "~~" + big + "~~", "<u>" + big + "</u>", "# " + big,
+                                    "<details>" + big, "<summary>" + big + "</summary>", "```" + big, big}) {
+        const auto blocks = pbnotes::parse_markdown(line + "\nnext line");
+        PB_CHECK(!blocks.empty());
+        PB_CHECK_EQ(blocks.back().line_index, 1);
+    }
+    // a code line inside a fence is shown in full, however long
+    const auto blocks = pbnotes::parse_markdown("```\n" + big + "\n```");
+    PB_CHECK_EQ(blocks[1].spans[0].text.size(), big.size());
+}
+
 PB_TEST_MAIN()

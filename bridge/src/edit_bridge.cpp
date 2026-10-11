@@ -7,6 +7,7 @@
 
 #include <QVariantMap>
 
+#include "pbnotes/slash.h"
 #include "pbnotes/text_clean.h"
 
 namespace {
@@ -193,4 +194,77 @@ QVariantMap EditSession::redo() {
 void EditSession::finishApply(const QString& title, const QString& text) {
     history_.finish_apply(to_u16(title), to_u16(text));
     emit changed();
+}
+
+// ---- SlashBridge (spec 006) ----------------------------------------------------------------------------------
+
+namespace {
+
+QVariantMap edit_map(const pbnotes::SlashEdit& e) {
+    QVariantMap m;
+    m.insert(QStringLiteral("begin"), static_cast<int>(e.begin));
+    m.insert(QStringLiteral("end"), static_cast<int>(e.end));
+    m.insert(QStringLiteral("text"), from_u16(e.text));
+    m.insert(QStringLiteral("caret"), static_cast<int>(e.caret));
+    return m;
+}
+
+}  // namespace
+
+QVariantList SlashBridge::entries() const {
+    const QString labels[] = {tr("Bullet list"), tr("Table"),         tr("Info box"), tr("Link"),       tr("Bold"),       tr("Italic"),
+                              tr("Underline"),   tr("Strikethrough"), tr("Details"),  tr("Quote"),      tr("Code block"), tr("Emoji")};
+    QVariantList list;
+    size_t i = 0;
+    for (const auto& info : pbnotes::slash_entries()) {
+        QVariantMap m;
+        m.insert(QStringLiteral("id"), QString::fromLatin1(info.id));
+        m.insert(QStringLiteral("label"), labels[i++]);
+        list.append(m);
+    }
+    return list;
+}
+
+QVariantMap SlashBridge::detect(const QString& before, const QString& after, int caret, int menuPos) const {
+    const size_t menu = menuPos < 0 ? pbnotes::kNoSlash : static_cast<size_t>(menuPos);
+    const pbnotes::SlashDetected d = pbnotes::detect_slash(to_u16(before), to_u16(after), caret < 0 ? 0 : static_cast<size_t>(caret), menu);
+    QVariantMap m;
+    const char* name = d.trigger == pbnotes::SlashTrigger::Menu ? "menu" : d.trigger == pbnotes::SlashTrigger::DateTime ? "datetime" : "none";
+    m.insert(QStringLiteral("trigger"), QString::fromLatin1(name));
+    m.insert(QStringLiteral("pos"), static_cast<int>(d.pos));
+    return m;
+}
+
+QVariantMap SlashBridge::expand(const QString& id, const QString& text, int pos, int len) const {
+    if (pos < 0 || len < 0 || static_cast<qsizetype>(pos) + len > text.size()) return QVariantMap();
+    const std::string key = id.toStdString();
+    for (const auto& info : pbnotes::slash_entries()) {
+        if (key != info.id || info.entry == pbnotes::SlashEntry::Emoji) continue;
+        return edit_map(pbnotes::expand_slash(info.entry, to_u16(text), static_cast<size_t>(pos), static_cast<size_t>(len)));
+    }
+    return QVariantMap();
+}
+
+QVariantMap SlashBridge::replace(int pos, int len, const QString& insert) const {
+    if (pos < 0 || len < 0) return QVariantMap();
+    return edit_map(pbnotes::replace_slash(static_cast<size_t>(pos), static_cast<size_t>(len), to_u16(insert)));
+}
+
+QString SlashBridge::timestamp(int year, int month, int day, int hour, int minute) const {
+    return from_u16(pbnotes::format_timestamp(year, month, day, hour, minute));
+}
+
+int SlashBridge::daysInMonth(int year, int month) const { return pbnotes::days_in_month(year, month); }
+
+QVariantList SlashBridge::emojis() const {
+    // faces, hands, symbols, objects, food and transport that people reach for in notes
+    static const char32_t kEmojis[] = {
+        0x1F600, 0x1F602, 0x1F60A, 0x1F60D, 0x1F609, 0x1F60E, 0x1F914, 0x1F622, 0x1F62D, 0x1F621, 0x1F634, 0x1F642,
+        0x1F44D, 0x1F44E, 0x1F44F, 0x1F64F, 0x1F4AA, 0x1F440, 0x1F64C, 0x1F44B,
+        0x2764,  0x1F525, 0x2B50,  0x2705,  0x274C,  0x26A0,  0x2753,  0x2757,  0x1F4A1, 0x1F4CC, 0x1F4CE, 0x1F4C5,
+        0x23F0,  0x1F4DD, 0x1F4D6, 0x1F4F7, 0x1F389, 0x1F381, 0x2615,  0x1F355, 0x1F3E0, 0x1F697, 0x2708,  0x2600,
+        0x1F512, 0x1F514, 0x1F4AC, 0x270F};
+    QVariantList list;
+    for (char32_t cp : kEmojis) list.append(QString::fromUcs4(&cp, 1));
+    return list;
 }

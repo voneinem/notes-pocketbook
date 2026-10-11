@@ -46,4 +46,20 @@ PB_TEST(non_task_lines_and_bad_indexes_return_the_text_unchanged) {
     PB_CHECK_EQ(toggle_task_item("", 0), std::string());
 }
 
+PB_TEST(a_task_box_inside_a_fence_of_either_kind_is_not_toggled_but_one_after_it_is) {
+    const std::string text = "~~~\n- [ ] in tilde fence\n~~~\n- [ ] after\n````\n- [ ] in long fence\n```\n- [ ] still in it\n````\n- [ ] last";
+    PB_CHECK_EQ(toggle_task_item(text, 1), text);
+    PB_CHECK_EQ(toggle_task_item(text, 5), text);
+    PB_CHECK_EQ(toggle_task_item(text, 7), text);
+    PB_CHECK(toggle_task_item(text, 3) != text);
+    PB_CHECK(toggle_task_item(text, 9) != text);
+}
+
+PB_TEST(a_task_box_in_a_quote_or_a_details_section_is_toggled_in_place) {
+    PB_CHECK_EQ(toggle_task_item("> - [ ] task", 0), std::string("> - [x] task"));
+    PB_CHECK_EQ(toggle_task_item(">   - [x] nested", 0), std::string(">   - [ ] nested"));
+    const std::string t = "<details>\n<summary>S</summary>\n- [ ] inside\n</details>";
+    PB_CHECK_EQ(toggle_task_item(t, 2), std::string("<details>\n<summary>S</summary>\n- [x] inside\n</details>"));
+}
+
 PB_TEST_MAIN()

@@ -10,6 +10,8 @@ import ".."
 // shows two markers to drag and a bubble with Cut, Copy, Paste, Remove, Select all, Undo and Redo; a long press on
 // empty text offers Paste, Select all, Undo and Redo. The header keeps only Cancel, Save, Favorite, Attach, Delete.
 // Undo and Redo step back and forth over every change to the title, the text, the category and the favorite marker.
+// Typing "/" in the text (at the start of a line or after a space) opens a list of formats next to the caret; choosing
+// one inserts its Markdown (spec 006). The insertion, with the typed "/", is one undo step.
 Item {
     id: page
     property int noteId: -1
@@ -21,6 +23,14 @@ Item {
     property bool favorite: false
     property string message: ""
     property bool historyReady: false   // set once the opened values are in the fields and in editSession
+
+    // ---- the "/" menu (spec 006) ----
+    property string previousText: ""    // the text area's text before its latest change (input of slash.detect)
+    property bool programmatic: false   // the editor itself is changing the text (paste, undo, token, menu insertion)
+    property var slashState: null       // {pos, kind}: the "/" a popup belongs to; kind "menu", "datetime" or "emoji"; null = none
+    property var now: null              // the clock of the date-time picker; tests set a date, null = the real time
+    property bool keyboardWasShown: false
+    function clock() { return now ? now : new Date() }
 
     // ---- selection tools (spec 005) ----
     property string activeField: "text"
@@ -56,6 +66,8 @@ Item {
         Qt.inputMethod.show()
     }
 
+    onWidthChanged: closeSlash()
+    onHeightChanged: closeSlash()
     onCategoryChanged: if (historyReady) editSession.observe("category", category)
     onFavoriteChanged: if (historyReady) editSession.observe("favorite", favorite ? "1" : "")
 
@@ -70,6 +82,111 @@ Item {
         page.StackView.view.pop()
     }
 
+    // ---- the "/" menu: detection, popups, insertion (spec 006, contracts/qml-bridge.md) ----
+    // Called for every change of the text. A typed "/" at the start of a line or after a blank opens the menu; the
+    // history group is opened *before* the "/" is reported, so the "/" and the later replacement become one undo step.
+    // Any other change while a popup is open closes it first (the "/" then stays as an ordinary step).
+    function areaChanged() {
+        if (menu) menu.close()
+        var current = area.text
+        var d = null
+        if (!programmatic && historyReady)
+            d = slash.detect(previousText, current, area.cursorPosition, slashState ? slashState.pos : -1)
+        if (d && d.trigger === "menu") {
+            closeSlash()
+            editSession.beginGroup("text")
+            editSession.observe("text", current)
+            openSlashMenu(d.pos)
+        } else if (d && d.trigger === "datetime") {  // a second "/" right behind the one that opened the menu
+            editSession.observe("text", current)
+            openDateTime()
+        } else {
+            if (slashState && !programmatic) closeSlash()
+            if (historyReady) editSession.observe("text", current)
+        }
+        previousText = current
+    }
+    // Typing moves the caret too, and the caret and the text change in no fixed order, so a moved caret is judged a
+    // moment later, when the text change (if any) has been seen: a caret anywhere but right behind the typed slash(es)
+    // closes the popup.
+    function cursorMoved() { Qt.callLater(cursorSettled) }
+    function cursorSettled() {
+        if (slashState && !programmatic && area.cursorPosition !== slashState.pos + (slashState.kind === "datetime" ? 2 : 1))
+            closeSlash()
+    }
+    function openSlashMenu(pos) {
+        slashState = { pos: pos, kind: "menu" }
+        var r = area.positionToRectangle(pos)
+        var p = area.mapToItem(page, r.x, r.y)
+        slashMenu.anchorX = p.x
+        slashMenu.caretTop = p.y
+        slashMenu.caretBottom = p.y + r.height
+        slashMenu.minY = 20
+        slashMenu.maxY = page.height - page.keyboardHeight
+        slashMenu.open()
+    }
+    // Ends whatever popup is open and its history group; the typed text stays. Does nothing when no popup is open.
+    function closeSlash() {
+        if (slashState === null) return
+        slashState = null
+        hideSlashPopups()
+        editSession.endGroup()
+    }
+    // Hides the menu and the pickers; the keyboard comes back if a picker had hidden it.
+    function hideSlashPopups() {
+        slashMenu.close()
+        dateTimePicker.close()
+        emojiPicker.close()
+        if (keyboardWasShown) { keyboardWasShown = false; Qt.inputMethod.show() }
+    }
+    // The pickers are used without the keyboard (their buttons need the room).
+    function hideKeyboardForPicker() {
+        keyboardWasShown = Qt.inputMethod.visible
+        Qt.inputMethod.hide()
+    }
+    function openDateTime() {
+        slashMenu.close()
+        slashState = { pos: slashState.pos, kind: "datetime" }
+        hideKeyboardForPicker()
+        dateTimePicker.minY = 20
+        dateTimePicker.maxY = page.height
+        dateTimePicker.open(clock())
+    }
+    function openEmoji() {
+        slashMenu.close()
+        slashState = { pos: slashState.pos, kind: "emoji" }
+        hideKeyboardForPicker()
+        emojiPicker.minY = 20
+        emojiPicker.maxY = page.height
+        emojiPicker.open()
+    }
+    function backHandled() {
+        if (slashState === null) return false
+        closeSlash()
+        return true
+    }
+    function slashChosen(id) {
+        if (slashState === null) return
+        if (id === "emoji") { openEmoji(); return }
+        var e = slash.expand(id, area.text, slashState.pos, 1)
+        if (e.text === undefined) { closeSlash(); return }
+        applySlashEdit(e)
+    }
+    // Replaces the typed "/" (or "//") by the edit's text and ends the history group: one undo step.
+    function applySlashEdit(e) {
+        programmatic = true
+        area.remove(e.begin, e.end)
+        area.insert(e.begin, e.text)
+        area.cursorPosition = e.caret
+        programmatic = false
+        previousText = area.text
+        editSession.observe("text", area.text)
+        slashState = null
+        hideSlashPopups()
+        editSession.endGroup()
+        area.forceActiveFocus()
+    }
+
     // ---- attachments: pick a file, copy it into the app, put its token on its own line at the cursor ----
     function openPicker() {
         page.message = ""
@@ -81,8 +198,11 @@ Item {
         var t = area.text
         var p = area.cursorPosition
         var lineStart = p === 0 ? 0 : t.lastIndexOf("\n", p - 1) + 1
+        closeSlash()
+        programmatic = true
         area.insert(lineStart, token + "\n")
         area.cursorPosition = lineStart + token.length + 1
+        programmatic = false
         area.forceActiveFocus()
     }
     Connections {
@@ -152,11 +272,14 @@ Item {
         } else {
             r = clipboard.cleanPaste()
             if (!r.ok) { if (r.errorText) page.message = r.errorText; return }
+            closeSlash()
+            programmatic = true
             editSession.beginGroup("text")
             if (a < b) area.remove(a, b)
             area.insert(a, r.text)
             editSession.endGroup()
             area.cursorPosition = a + r.text.length
+            programmatic = false
         }
     }
 
@@ -224,6 +347,7 @@ Item {
         menu.place()
     }
     function openMenu() {
+        closeSlash()
         menu.items = menuItems()
         if (menu.items.length === 0) { menu.close(); return }
         placeMenu()
@@ -245,6 +369,11 @@ Item {
 
     // ---- undo / redo: the session says what to apply; the fields are changed with remove/insert ----
     function applyHistory(step) {
+        programmatic = true
+        applyHistoryStep(step)
+        programmatic = false
+    }
+    function applyHistoryStep(step) {
         if (step.field === "category") page.category = step.value
         else if (step.field === "favorite") page.favorite = step.value === "1"
         else {
@@ -258,11 +387,13 @@ Item {
         editSession.finishApply(titleField.text, area.text)
     }
     function undoStep() {
+        closeSlash()
         page.message = ""
         var s = editSession.undo()
         if (s.field) applyHistory(s)
     }
     function redoStep() {
+        closeSlash()
         page.message = ""
         var s = editSession.redo()
         if (s.field) applyHistory(s)
@@ -306,6 +437,7 @@ Item {
             }
             TextField {
                 id: titleField
+                objectName: "titleField"
                 width: parent.width - 120
                 font.pixelSize: 30
                 color: "#000000"
@@ -389,6 +521,7 @@ Item {
 
         TextArea.flickable: TextArea {
             id: area
+            objectName: "textArea"
             font.pixelSize: bridge.fontPx
             color: "#000000"
             wrapMode: TextEdit.Wrap
@@ -398,8 +531,9 @@ Item {
             background: null
             onCursorRectangleChanged: flick.ensureCaretVisible()
             persistentSelection: false
-            onTextChanged: { if (menu) menu.close(); if (page.historyReady) editSession.observe("text", text) }
-            onActiveFocusChanged: { if (activeFocus) page.activeField = "text"; else deselect() }
+            onTextChanged: page.areaChanged()
+            onCursorPositionChanged: page.cursorMoved()
+            onActiveFocusChanged: { if (activeFocus) page.activeField = "text"; else { deselect(); page.closeSlash() } }
             MouseArea {
                 anchors.fill: parent
                 pressAndHoldInterval: 600
@@ -453,5 +587,31 @@ Item {
     SelectionMenu {
         id: menu
         onChosen: function(id) { page.menuChosen(id) }
+    }
+
+    // a tap anywhere outside the "/" menu closes it and leaves the typed "/" (the press goes no further)
+    MouseArea {
+        id: slashScrim
+        objectName: "slashScrim"
+        anchors.fill: parent
+        z: 1999
+        visible: page.slashState !== null
+        onPressed: page.closeSlash()
+    }
+    SlashMenu {
+        id: slashMenu
+        entries: slash.entries()
+        onChosen: function(id) { page.slashChosen(id) }
+    }
+    DateTimePicker {
+        id: dateTimePicker
+        onAccepted: function(text) { if (page.slashState) page.applySlashEdit(slash.replace(page.slashState.pos, 2, text)) }
+        onCancelled: page.closeSlash()
+    }
+    EmojiPicker {
+        id: emojiPicker
+        emojis: slash.emojis()
+        onChosen: function(emoji) { if (page.slashState) page.applySlashEdit(slash.replace(page.slashState.pos, 1, emoji)) }
+        onCancelled: page.closeSlash()
     }
 }

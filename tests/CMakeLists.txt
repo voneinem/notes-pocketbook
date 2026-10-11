@@ -50,12 +50,18 @@ if(TARGET pbnotes_bridge AND NOT TARGET_TYPE STREQUAL "ARM")
         add_test(NAME qml_editor_flow COMMAND test_qml_pages ${CMAKE_CURRENT_SOURCE_DIR}/qml/editor_flow.qml
                  ${CMAKE_SOURCE_DIR}/qml/pages/EditorPage.qml)
         set_tests_properties(qml_editor_flow PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen" LABELS "bridge")
+        add_test(NAME qml_editor_slash COMMAND test_qml_pages ${CMAKE_CURRENT_SOURCE_DIR}/qml/editor_slash.qml
+                 ${CMAKE_SOURCE_DIR}/qml/pages/EditorPage.qml)
+        set_tests_properties(qml_editor_slash PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen" LABELS "bridge")
         add_test(NAME qml_reader_title COMMAND test_qml_pages ${CMAKE_CURRENT_SOURCE_DIR}/qml/reader_title.qml
                  ${CMAKE_SOURCE_DIR}/qml/pages/ReaderPage.qml)
         set_tests_properties(qml_reader_title PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen" LABELS "bridge")
         add_test(NAME qml_reader_select COMMAND test_qml_pages ${CMAKE_CURRENT_SOURCE_DIR}/qml/reader_select.qml
                  ${CMAKE_SOURCE_DIR}/qml/pages/ReaderPage.qml)
         set_tests_properties(qml_reader_select PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen" LABELS "bridge")
+        add_test(NAME qml_reader_blocks COMMAND test_qml_pages ${CMAKE_CURRENT_SOURCE_DIR}/qml/reader_blocks.qml
+                 ${CMAKE_SOURCE_DIR}/qml/pages/ReaderPage.qml)
+        set_tests_properties(qml_reader_blocks PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen" LABELS "bridge")
     endif()
 endif()
 

@@ -19,7 +19,8 @@ struct Piece {
 };
 
 bool is_text(const Block& b) {
-    return b.kind == BlockKind::Heading || b.kind == BlockKind::Paragraph || b.kind == BlockKind::ListItem;
+    return b.kind == BlockKind::Heading || b.kind == BlockKind::Paragraph || b.kind == BlockKind::ListItem ||
+           b.kind == BlockKind::Code || b.kind == BlockKind::Summary;
 }
 
 size_t displayed_length(const Block& b) {
@@ -152,6 +153,14 @@ std::string copy_source(std::string_view note_text, const std::vector<Block>& bl
             p.begin = b.src_begin;
             p.end = b.src_end;
             add(p);
+        } else if (b.kind == BlockKind::Fence || b.kind == BlockKind::Callout || b.kind == BlockKind::Marker) {
+            // whole units: the line as written (spec 006)
+            Piece p;
+            p.line = static_cast<size_t>(b.line_index);
+            p.begin = 0;
+            p.end = b.line_index >= 0 && static_cast<size_t>(b.line_index) < lines.size()
+                        ? static_cast<int>(lines[static_cast<size_t>(b.line_index)].size()) : 0;
+            pieces.push_back(p);
         } else if (b.kind == BlockKind::Blank) {
             Piece p;
             p.line = static_cast<size_t>(b.line_index);

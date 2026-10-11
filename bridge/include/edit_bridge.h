@@ -5,6 +5,7 @@
 #include <QElapsedTimer>
 #include <QObject>
 #include <QString>
+#include <QVariantList>
 #include <QVariantMap>
 
 #include <functional>
@@ -82,4 +83,30 @@ private:
     pbnotes::EditHistory history_;
     QElapsedTimer timer_;
     std::function<qint64()> clock_;
+};
+
+// The "/" menu and the "//" date-time picker of the editor (spec 006, contracts/qml-bridge.md). Stateless and thin: the
+// rules are in pbnotes/slash.h; this converts QString <-> UTF-16 and gives the entries their labels. Nothing here
+// logs, stores or sends text.
+class SlashBridge : public QObject {
+    Q_OBJECT
+
+public:
+    explicit SlashBridge(QObject* parent = nullptr) : QObject(parent) {}
+
+    // [{id, label}] in the order of the menu.
+    Q_INVOKABLE QVariantList entries() const;
+    // {trigger: "none" | "menu" | "datetime", pos}; menuPos is -1 while no menu is open.
+    Q_INVOKABLE QVariantMap detect(const QString& before, const QString& after, int caret, int menuPos) const;
+    // {begin, end, text, caret} for an entry id (not "emoji") over the typed "/" at [pos, pos + len); empty for an
+    // unknown id, "emoji" or a position outside the text.
+    Q_INVOKABLE QVariantMap expand(const QString& id, const QString& text, int pos, int len) const;
+    // {begin, end, text, caret}: [pos, pos + len) replaced by `insert`, the caret behind it.
+    Q_INVOKABLE QVariantMap replace(int pos, int len, const QString& insert) const;
+    // "YYYY-MM-DD HH:MM" (the arguments are clamped), and the number of days of a month.
+    Q_INVOKABLE QString timestamp(int year, int month, int day, int hour, int minute) const;
+    Q_INVOKABLE int daysInMonth(int year, int month) const;
+    // The 48 emojis of the picker's grid: each one code point (no joiners, skin tones or selectors), all drawn by the
+    // bundled emoji font (a test checks it against the font file).
+    Q_INVOKABLE QVariantList emojis() const;
 };

@@ -124,9 +124,12 @@ PB_TEST(images_tables_and_code_blocks) {
     PB_CHECK_EQ(b.size(), static_cast<size_t>(6));
     PB_CHECK(b[0].kind == BlockKind::Attachment);  // a relative image is an attachment reference (spec 002)
     PB_CHECK(b[1].kind == BlockKind::Table);  // pipe tables are drawn as tables (spec 002)
-    PB_CHECK_EQ(plain(b[2]), std::string("```"));
+    PB_CHECK(b[2].kind == BlockKind::Fence);  // spec 006: the fence lines are the edges of the code box, not text
+    PB_CHECK(b[2].spans.empty());
+    PB_CHECK(b[3].kind == BlockKind::Code);
     PB_CHECK_EQ(plain(b[3]), std::string("int x = 1; // **not bold**"));
     PB_CHECK_EQ(b[3].spans.size(), static_cast<size_t>(1));  // no emphasis inside a code fence
+    PB_CHECK(b[4].kind == BlockKind::Fence);
     PB_CHECK_EQ(plain(b[5]), std::string("inline `code *x*` here"));  // no emphasis inside inline code
 }
 

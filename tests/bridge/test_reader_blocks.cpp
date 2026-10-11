@@ -278,6 +278,123 @@ PB_TEST(every_entry_says_which_parsed_block_and_row_it_is) {
     PB_CHECK_EQ(heading.value("end").toInt(), 3);
 }
 
+// ---- spec 006 US1: fenced code blocks ----------------------------------------------------------
+
+PB_TEST(a_fenced_block_becomes_fence_code_code_fence_entries) {
+    const QVariantList all = reader_blocks(note_with("```yaml\na: 1 <b>\n  b: 2\n```"));
+    PB_CHECK_EQ(all.size(), 4);
+    const char* kinds[] = {"fence", "code", "code", "fence"};
+    for (int i = 0; i < 4; ++i) {
+        const QVariantMap m = block(all, i);
+        PB_CHECK_EQ(m.value("kind").toString().toStdString(), std::string(kinds[i]));
+        PB_CHECK(m.value("unsplittable").toBool());  // a line is never cut by a page break
+        PB_CHECK_EQ(m.value("line").toInt(), i);
+        PB_CHECK_EQ(m.value("block").toInt(), i);
+    }
+    PB_CHECK(block(all, 0).value("codeFirst").toBool() && !block(all, 0).value("codeLast").toBool());
+    PB_CHECK(!block(all, 1).value("codeFirst").toBool() && !block(all, 1).value("codeLast").toBool());
+    PB_CHECK(block(all, 3).value("codeLast").toBool() && !block(all, 3).value("codeFirst").toBool());
+    // the text of a code line is escaped and carries no tags; leading spaces survive
+    PB_CHECK_EQ(block(all, 1).value("html").toString().toStdString(), std::string("a: 1 &lt;b&gt;"));
+    PB_CHECK_EQ(block(all, 2).value("html").toString().toStdString(), std::string("  b: 2"));
+    PB_CHECK_EQ(block(all, 0).value("html").toString().toStdString(), std::string());
+    PB_CHECK_EQ(block(all, 3).value("html").toString().toStdString(), std::string());
+    PB_CHECK_EQ(block(all, 0).value("src").toMap().value("end").toInt(), 7);
+}
+
+PB_TEST(markup_in_code_stays_text_without_links) {
+    const QVariantList all = reader_blocks(note_with("```\n**b** [a](https://example.org) https://example.org\n```"));
+    const QVariantMap m = block(all, 1);
+    PB_CHECK_EQ(m.value("html").toString().toStdString(), std::string("**b** [a](https://example.org) https://example.org"));
+    PB_CHECK_EQ(m.value("links").toList().size(), 0);
+}
+
+PB_TEST(an_unclosed_and_an_empty_box_get_their_edge_flags) {
+    QVariantList all = reader_blocks(note_with("```\na"));
+    PB_CHECK_EQ(all.size(), 2);
+    PB_CHECK(block(all, 0).value("codeFirst").toBool());
+    PB_CHECK(block(all, 1).value("codeLast").toBool());
+    all = reader_blocks(note_with("```\n```"));
+    PB_CHECK(block(all, 0).value("codeFirst").toBool());
+    PB_CHECK(block(all, 1).value("codeLast").toBool());
+}
+
+PB_TEST(a_note_without_fences_has_no_code_flags) {
+    const QVariantList all = reader_blocks(note_with("# H\ntext `inline`\n- item"));
+    for (const QVariant& v : all) {
+        PB_CHECK(!v.toMap().value("codeFirst").toBool());
+        PB_CHECK(!v.toMap().value("codeLast").toBool());
+        PB_CHECK(v.toMap().value("kind").toString() != QLatin1String("code"));
+    }
+}
+
+// ---- spec 006 US4: quotes, info boxes, details, strikethrough, underline ----------------------------------
+
+PB_TEST(strike_and_underline_become_s_and_u_tags_and_combine) {
+    auto html = [](const char* text) { return block(text_blocks(reader_blocks(note_with(text))), 0).value("html").toString().toStdString(); };
+    PB_CHECK_EQ(html("a ~~x~~ b"), std::string("a <s>x</s> b"));
+    PB_CHECK_EQ(html("<u>x</u>"), std::string("<u>x</u>"));
+    PB_CHECK_EQ(html("**~~x~~**"), std::string("<b><s>x</s></b>"));
+    PB_CHECK_EQ(html("~~<u>x</u>~~"), std::string("<s><u>x</u></s>"));
+    // a link keeps its own underline wrapper
+    PB_CHECK_EQ(html("~~[l](https://example.org)~~"), std::string("<a href=\"l0\"><u><s>l</s></u></a>"));
+}
+
+PB_TEST(note_text_that_looks_like_html_stays_escaped) {
+    auto html = [](const char* text) { return block(text_blocks(reader_blocks(note_with(text))), 0).value("html").toString().toStdString(); };
+    PB_CHECK_EQ(html("<script>x</script> <details> <u>open"), std::string("&lt;script&gt;x&lt;/script&gt; &lt;details&gt; &lt;u&gt;open"));
+    PB_CHECK_EQ(html("<s>raw</s>"), std::string("&lt;s&gt;raw&lt;/s&gt;"));
+}
+
+PB_TEST(table_cells_carry_strike_and_underline) {
+    const QVariantList all = reader_blocks(note_with("| ~~a~~ | <u>b</u> |\n|---|---|\n| 1 | 2 |"));
+    const QVariantList cols = block(all, 0).value("cols").toList();
+    PB_CHECK_EQ(cols.at(0).toMap().value("html").toString().toStdString(), std::string("<s>a</s>"));
+    PB_CHECK_EQ(cols.at(1).toMap().value("html").toString().toStdString(), std::string("<u>b</u>"));
+}
+
+PB_TEST(quote_and_info_entries_carry_their_group_flags) {
+    const QVariantList all = reader_blocks(note_with("> [!TIP]\n> a\n> b\n\n> plain"));
+    PB_CHECK_EQ(all.size(), 5);
+    PB_CHECK_EQ(block(all, 0).value("kind").toString().toStdString(), std::string("callout"));
+    PB_CHECK_EQ(block(all, 0).value("callout").toString().toStdString(), std::string("tip"));
+    PB_CHECK_EQ(block(all, 0).value("html").toString().toStdString(), std::string());
+    for (int i = 0; i < 3; ++i) PB_CHECK_EQ(block(all, i).value("quote").toInt(), 2);
+    PB_CHECK(block(all, 0).value("quoteFirst").toBool() && !block(all, 0).value("quoteLast").toBool());
+    PB_CHECK(!block(all, 1).value("quoteFirst").toBool() && !block(all, 1).value("quoteLast").toBool());
+    PB_CHECK(block(all, 2).value("quoteLast").toBool());
+    PB_CHECK_EQ(block(all, 3).value("quote").toInt(), 0);   // the blank line between the groups
+    PB_CHECK_EQ(block(all, 4).value("quote").toInt(), 1);
+    PB_CHECK(block(all, 4).value("quoteFirst").toBool() && block(all, 4).value("quoteLast").toBool());
+    const char* names[] = {"[!NOTE]", "[!WARNING]", "[!IMPORTANT]", "[!CAUTION]"};
+    const char* kinds[] = {"note", "warning", "important", "caution"};
+    for (int i = 0; i < 4; ++i) {
+        const QVariantList one = reader_blocks(note_with(std::string("> ") + names[i]));
+        PB_CHECK_EQ(block(one, 0).value("callout").toString().toStdString(), std::string(kinds[i]));
+    }
+}
+
+PB_TEST(details_entries_carry_the_section_key_and_state) {
+    const QVariantList all = reader_blocks(note_with("<details open>\n<summary>**S**</summary>\nbody\n</details>\nafter"));
+    PB_CHECK_EQ(all.size(), 5);
+    PB_CHECK_EQ(block(all, 0).value("kind").toString().toStdString(), std::string("marker"));
+    PB_CHECK_EQ(block(all, 1).value("kind").toString().toStdString(), std::string("summary"));
+    PB_CHECK_EQ(block(all, 1).value("html").toString().toStdString(), std::string("<b>S</b>"));
+    PB_CHECK_EQ(block(all, 1).value("detailsId").toInt(), 0);
+    PB_CHECK(block(all, 1).value("detailsOpen").toBool());
+    PB_CHECK_EQ(block(all, 2).value("detailsId").toInt(), 0);
+    PB_CHECK_EQ(block(all, 0).value("detailsId").toInt(), -1);
+    PB_CHECK_EQ(block(all, 3).value("kind").toString().toStdString(), std::string("marker"));
+    PB_CHECK_EQ(block(all, 3).value("detailsId").toInt(), -1);
+    PB_CHECK_EQ(block(all, 4).value("detailsId").toInt(), -1);
+    PB_CHECK_EQ(block(all, 0).value("html").toString().toStdString(), std::string());
+    // every entry has the keys, with neutral defaults, also in a note with none of the new formats
+    const QVariantList plain_note = reader_blocks(note_with("text"));
+    PB_CHECK_EQ(block(plain_note, 0).value("quote").toInt(), 0);
+    PB_CHECK_EQ(block(plain_note, 0).value("detailsId").toInt(), -1);
+    PB_CHECK(!block(plain_note, 0).value("detailsOpen").toBool());
+}
+
 int main(int argc, char** argv) {
     QCoreApplication app(argc, argv);
     return pbtest::run_all();

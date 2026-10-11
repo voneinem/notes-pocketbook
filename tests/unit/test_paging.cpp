@@ -34,6 +34,17 @@ PB_TEST(going_back_moves_the_new_top_up_to_the_blocks_top) {
     PB_CHECK_EQ(page_target(1840, 1000, 5000, 920, -1, rows), 900.0);
 }
 
+PB_TEST(a_heading_and_the_line_below_it_stay_on_one_page) {
+    // spec 006 FR-005: the reader lists a heading's rectangle widened by one body line; the heading (860..900) is the
+    // last thing that would fit above the edge at 920, its line (900..945) would start the next page: the page ends
+    // above the heading instead.
+    std::vector<Interval> heading = {{860, 900 + 53}};
+    PB_CHECK_EQ(page_target(0, 1000, 5000, 920, 1, heading), 860.0);
+    // a heading that is wholly above the edge is not touched
+    std::vector<Interval> earlier = {{700, 800 + 53}};
+    PB_CHECK_EQ(page_target(0, 1000, 5000, 920, 1, earlier), 920.0);
+}
+
 PB_TEST(a_block_taller_than_the_view_is_ignored) {
     std::vector<Interval> big = {{500, 2000}};
     PB_CHECK_EQ(page_target(0, 1000, 5000, 920, 1, big), 920.0);
