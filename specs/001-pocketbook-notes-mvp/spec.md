@@ -312,6 +312,9 @@ expected notes each time.
   is shown. The editor has no separate title field and the app never sends a title.
   (**Superseded by feature 004, `specs/004-title-category-picker/spec.md`:** the editor has a Title
   field, the stored title is what the reader entered, and it is sent with every write.)
+  (**Extended by feature 005, `specs/005-text-editing-reader-title/spec.md`:** the reading page starts with the
+  note's title as a separate title block above the text, and the editor gains select, copy, cut, paste, delete,
+  undo and redo.)
 - **FR-020**: The system MUST NOT store a new note that is empty or whitespace-only.
 
 **Offline behavior**
