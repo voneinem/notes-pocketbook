@@ -26,9 +26,16 @@ ARM build from the working tree (version `0ae4a86-dirty`, uncommitted changes) p
 `pbnotes.bin`, `pbnotes.app` and `pbnotes-licenses/`, all verified with `cmp`; the previous `pbnotes.log` was
 moved to `pbnotes.log.run7`. Not yet launched or looked at.
 
-## On the reader — OPEN (manual)
+## On the reader — 2026-10-11 (version 1.0.0, InkPad One, Wi-Fi off)
 
-- [ ] T023 About screen (quickstart §3, first two rows)
-- [ ] T031 License text, paging, rotation, offline (quickstart §3)
-- [ ] T040 Third-party list and entries, degraded installs (quickstart §3, §3a)
-- [ ] T044 Release check (quickstart §4)
+Build `1.0.0` (committed as `0c39362`), installed as above and checked by the user on the device:
+
+- [X] T023 About screen: version 1.0.0, author, copyright line, license name (quickstart §3, rows 1-2). OK.
+- [X] T031 License text, paging, Back, rotation, offline (quickstart §3). OK.
+- [X] T040 Third-party list (10 rows, bundled first), paging by whole rows, every entry opened (quickstart §3). OK.
+  **Not done** for T040: the degraded installs of quickstart §3a (missing text file, missing manifest); they
+  were skipped by decision. The behavior is covered on the host by `test_about_bridge` and
+  `test_about_files`, not on the device.
+- [ ] T044 Release check (quickstart §4): skipped by decision, stays open. Not done: `NOTICE` review against
+  the SDK versions, and reading `pbnotes.log` to confirm that the About pages made no network request.
+  Note the About pages have no network code (`AboutBridge` has no access to the sync or network layer).

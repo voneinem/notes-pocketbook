@@ -40,5 +40,5 @@
   TLS libraries, PocketBook SDK library) before the list is final; the spec does not guess them.
 - All items pass.
 - Implementation (2026-10-11): every functional requirement is covered by tasks T001–T043 and implemented and
-  tested on the host. Open manual tasks (need the reader): T023, T031, T040, T044; see
+  tested on the host. Device walkthrough 2026-10-11: T023, T031, T040 done (without the degraded installs of §3a); T044 and §3a skipped; see
   [device-results.md](device-results.md).

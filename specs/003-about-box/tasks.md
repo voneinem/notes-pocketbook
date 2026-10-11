@@ -183,7 +183,7 @@ version, the other items "unavailable".
   Account section, pushing `AboutPage.qml`; register `pages/AboutPage.qml` in `qml/qml.qrc`.
 - [X] T022 [US1] Run `ctest --test-dir build-host --output-on-failure`; `app_self_test` must load the
   new page without QML errors; all earlier tests green.
-- [ ] T023 [US1] [MANUAL] On the reader (quickstart §3, first two rows): About shows the version equal
+- [X] T023 [US1] [MANUAL] On the reader (quickstart §3, first two rows): About shows the version equal
   to the zip's version, author, copyright identical to `LICENSE`, license name; Back returns to
   Settings. Record the result in `specs/003-about-box/checklists/device-results.md`.
 
@@ -230,7 +230,7 @@ the last line; Back returns to About; works offline.
 - [X] T029 [US2] Add a "License" button to `qml/pages/AboutPage.qml` pushing `LicenseTextPage.qml`
   with `about.appLicense()`; register `pages/LicenseTextPage.qml` in `qml/qml.qrc`.
 - [X] T030 [US2] Run `ctest --test-dir build-host --output-on-failure`; `app_self_test` green.
-- [ ] T031 [US2] [MANUAL] On the reader, Wi-Fi off (quickstart §3 "License" and rotation rows): full
+- [X] T031 [US2] [MANUAL] On the reader, Wi-Fi off (quickstart §3 "License" and rotation rows): full
   text, paging to the end, Back to About, rotation keeps the place. Record in
   `specs/003-about-box/checklists/device-results.md`.
 
@@ -301,7 +301,7 @@ license name; each entry opens its holder, license, address and text (or the add
 - [X] T038 [US3] Add a "Third-party licenses" button to `qml/pages/AboutPage.qml` pushing
   `ThirdPartyPage.qml`; register `pages/ThirdPartyPage.qml` in `qml/qml.qrc`.
 - [X] T039 [US3] Run `ctest --test-dir build-host --output-on-failure`; `app_self_test` green.
-- [ ] T040 [US3] [MANUAL] On the reader, Wi-Fi off (quickstart §3 rows "Third-party licenses", "Open
+- [X] T040 [US3] [MANUAL] On the reader, Wi-Fi off (quickstart §3 rows "Third-party licenses", "Open
   each entry", "Hold a page button"; §3a degraded installs): list, every entry, SQLite/InkView
   address fallback, GPL-3.0 to its last line, rotation, missing file and missing manifest cases.
   Record in `specs/003-about-box/checklists/device-results.md`.
@@ -320,7 +320,7 @@ license name; each entry opens its holder, license, address and text (or the add
 - [X] T043 Walk through quickstart §1a (the six drift edits) and confirm each makes
   `test_license_consistency` fail with the rule and entry named; revert each edit. Record the result
   in `specs/003-about-box/checklists/device-results.md`.
-- [ ] T044 [MANUAL] Release check (quickstart §4): `NOTICE` reviewed against the SDK's current library
+- [ ] T044 [MANUAL] (skipped 2026-10-11, left open) Release check (quickstart §4): `NOTICE` reviewed against the SDK's current library
   versions, About version equals the release identifier, the three [VERIFY] facts of `research.md`
   R-2 settled. Record in `specs/003-about-box/checklists/device-results.md`.
 - [X] T046 Release 1.0.0: `VERSION` file as the single version source for CMake and
