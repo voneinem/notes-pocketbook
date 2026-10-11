@@ -25,14 +25,16 @@ foreach(src ${PBNOTES_TEST_SOURCES})
     set_tests_properties(${name} PROPERTIES LABELS "${kind}" SKIP_RETURN_CODE 77)
 endforeach()
 
-# The Qt bridge test needs Qt Core; it runs real local HTTPS servers like the core TLS tests.
+# The Qt bridge tests need Qt Core; test_notes_bridge runs real local HTTPS servers like the core TLS tests.
 if(TARGET pbnotes_bridge)
-    add_executable(test_notes_bridge bridge/test_notes_bridge.cpp)
-    target_link_libraries(test_notes_bridge PRIVATE pbnotes_bridge OpenSSL::SSL OpenSSL::Crypto Threads::Threads)
-    target_include_directories(test_notes_bridge PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/support)
-    target_compile_definitions(test_notes_bridge PRIVATE PBNOTES_SOURCE_DIR="${CMAKE_SOURCE_DIR}")
-    add_test(NAME test_notes_bridge COMMAND test_notes_bridge)
-    set_tests_properties(test_notes_bridge PROPERTIES LABELS "bridge" SKIP_RETURN_CODE 77)
+    foreach(name test_notes_bridge test_reader_blocks test_attachment_image_provider test_attachments_bridge)
+        add_executable(${name} bridge/${name}.cpp)
+        target_link_libraries(${name} PRIVATE pbnotes_bridge OpenSSL::SSL OpenSSL::Crypto Threads::Threads)
+        target_include_directories(${name} PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/support)
+        target_compile_definitions(${name} PRIVATE PBNOTES_SOURCE_DIR="${CMAKE_SOURCE_DIR}")
+        add_test(NAME ${name} COMMAND ${name})
+        set_tests_properties(${name} PROPERTIES LABELS "bridge" SKIP_RETURN_CODE 77)
+    endforeach()
 endif()
 
 # Mechanical anonymization check of the fixtures, and a self-test proving the checker works.

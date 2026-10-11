@@ -2,6 +2,8 @@
 
 #include <ctime>
 
+#include "pbnotes/utf8.h"
+
 namespace pbnotes {
 
 namespace {
@@ -46,27 +48,30 @@ std::string make_excerpt(std::string_view text, std::size_t max_chars) {
     size_t b, e, n;
     if (!first_nonempty_line(text, &b, &e, &n)) return std::string();
     std::string out;
-    size_t chars = 0;
+    size_t chars = 0;  // code points
     bool pending_space = false;
-    for (size_t i = n; i < text.size(); ++i) {
+    size_t i = n;
+    while (i < text.size()) {
         const char c = text[i];
         if (is_space(c) || c == '\n') {
             pending_space = !out.empty();
+            ++i;
             continue;
         }
-        const bool lead = (static_cast<unsigned char>(c) & 0xC0) != 0x80;  // start of a code point
-        if (lead) {
-            if (chars == max_chars) break;
-            if (pending_space) {
-                if (chars + 1 > max_chars) break;
-                out.push_back(' ');
-                ++chars;
-                pending_space = false;
-                if (chars == max_chars) break;
-            }
+        if (chars >= max_chars) break;
+        if (pending_space) {
+            out.push_back(' ');
             ++chars;
+            pending_space = false;
+            if (chars >= max_chars) break;
         }
-        out.push_back(c);
+        // one display unit at a time: an emoji sequence is never cut in the middle, so the excerpt may
+        // exceed `max_chars` by the length of the last unit
+        const size_t end = utf8_cluster_end(text, i);
+        for (size_t k = i; k < end; ++k)
+            if ((static_cast<unsigned char>(text[k]) & 0xC0) != 0x80) ++chars;
+        out.append(text.substr(i, end - i));
+        i = end;
     }
     return out;
 }

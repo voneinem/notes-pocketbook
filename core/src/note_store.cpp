@@ -4,6 +4,7 @@
 #include "pbnotes/log.h"
 #include "pbnotes/markdown.h"
 #include "pbnotes/title.h"
+#include "store_sql.h"
 #include <sqlite3.h>
 #include <sys/stat.h>
 
@@ -13,6 +14,11 @@
 #include <map>
 
 namespace pbnotes {
+
+using sql::exec;
+using sql::query_text;
+using sql::sqlite_error;
+using sql::Stmt;
 
 namespace {
 
@@ -53,6 +59,21 @@ CREATE TABLE IF NOT EXISTS settings(
     key TEXT PRIMARY KEY,
     value TEXT NOT NULL
 );
+CREATE TABLE IF NOT EXISTS attachments(
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    note_local_id INTEGER REFERENCES notes(local_id) ON DELETE CASCADE,
+    remote_path TEXT,
+    display_name TEXT NOT NULL,
+    kind TEXT NOT NULL CHECK(kind IN ('image','file')),
+    size INTEGER,
+    state TEXT NOT NULL CHECK(state IN ('staged','pending','remote','downloaded')),
+    error_key TEXT NOT NULL DEFAULT '',
+    local_file TEXT NOT NULL DEFAULT '',
+    created INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS attachments_note ON attachments(note_local_id);
+CREATE UNIQUE INDEX IF NOT EXISTS attachments_path ON attachments(note_local_id, remote_path)
+    WHERE remote_path IS NOT NULL;
 )SQL";
 
 bool file_size(const std::string& path, long long* size) {
@@ -69,40 +90,6 @@ bool copy_file(const std::string& from, const std::string& to) {
     out << in.rdbuf();
     out.flush();
     return static_cast<bool>(out);
-}
-
-std::string sqlite_error(sqlite3* db) { return db ? sqlite3_errmsg(db) : "sqlite error"; }
-
-bool exec(sqlite3* db, const char* sql, std::string* error) {
-    char* msg = nullptr;
-    if (sqlite3_exec(db, sql, nullptr, nullptr, &msg) != SQLITE_OK) {
-        if (error) *error = msg ? msg : sqlite_error(db);
-        sqlite3_free(msg);
-        return false;
-    }
-    return true;
-}
-
-// First column of the first row as text ("" when none).
-bool query_text(sqlite3* db, const std::string& sql, std::string* out, std::string* error) {
-    sqlite3_stmt* st = nullptr;
-    if (sqlite3_prepare_v2(db, sql.c_str(), -1, &st, nullptr) != SQLITE_OK) {
-        if (error) *error = sqlite_error(db);
-        return false;
-    }
-    out->clear();
-    int rc = sqlite3_step(st);
-    if (rc == SQLITE_ROW) {
-        const unsigned char* t = sqlite3_column_text(st, 0);
-        if (t) *out = reinterpret_cast<const char*>(t);
-        rc = SQLITE_OK;
-    } else if (rc == SQLITE_DONE) {
-        rc = SQLITE_OK;
-    } else if (error) {
-        *error = sqlite_error(db);
-    }
-    sqlite3_finalize(st);
-    return rc == SQLITE_OK;
 }
 
 // The title shown for a note that is in sync with the server: the server's title (its file name, the
@@ -244,34 +231,12 @@ bool NoteStore::set_setting(const std::string& key, const std::string& value) {
 
 namespace {
 
-class Stmt {
-public:
-    Stmt(sqlite3* db, const char* sql) { ok_ = sqlite3_prepare_v2(db, sql, -1, &st_, nullptr) == SQLITE_OK; }
-    ~Stmt() { sqlite3_finalize(st_); }
-    Stmt(const Stmt&) = delete;
-    Stmt& operator=(const Stmt&) = delete;
-    bool ok() const { return ok_; }
-    sqlite3_stmt* get() const { return st_; }
-    void bind_text(int i, const std::string& v) { sqlite3_bind_text(st_, i, v.c_str(), static_cast<int>(v.size()), SQLITE_TRANSIENT); }
-    void bind_int64(int i, long long v) { sqlite3_bind_int64(st_, i, v); }
-    void bind_null(int i) { sqlite3_bind_null(st_, i); }
-    int step() { return sqlite3_step(st_); }
-    std::string text(int col) const {
-        const unsigned char* t = sqlite3_column_text(st_, col);
-        return t ? std::string(reinterpret_cast<const char*>(t), static_cast<size_t>(sqlite3_column_bytes(st_, col))) : std::string();
-    }
-    bool is_null(int col) const { return sqlite3_column_type(st_, col) == SQLITE_NULL; }
-    long long int64(int col) const { return sqlite3_column_int64(st_, col); }
-
-private:
-    sqlite3_stmt* st_ = nullptr;
-    bool ok_ = false;
-};
-
 std::string counts_to_json(const SyncCounts& c) {
     return "{\"pushed\":" + std::to_string(c.pushed) + ",\"pulled\":" + std::to_string(c.pulled) +
            ",\"deleted\":" + std::to_string(c.deleted) + ",\"conflicts\":" + std::to_string(c.conflicts) +
-           ",\"recreated\":" + std::to_string(c.recreated) + ",\"restored\":" + std::to_string(c.restored) + "}";
+           ",\"recreated\":" + std::to_string(c.recreated) + ",\"restored\":" + std::to_string(c.restored) +
+           ",\"attachments_uploaded\":" + std::to_string(c.attachments_uploaded) +
+           ",\"attachments_failed\":" + std::to_string(c.attachments_failed) + "}";
 }
 
 SyncCounts counts_from_json(const std::string& text) {
@@ -284,6 +249,8 @@ SyncCounts counts_from_json(const std::string& text) {
     c.conflicts = static_cast<int>(v->get_int("conflicts").value_or(0));
     c.recreated = static_cast<int>(v->get_int("recreated").value_or(0));
     c.restored = static_cast<int>(v->get_int("restored").value_or(0));
+    c.attachments_uploaded = static_cast<int>(v->get_int("attachments_uploaded").value_or(0));
+    c.attachments_failed = static_cast<int>(v->get_int("attachments_failed").value_or(0));
     return c;
 }
 
@@ -621,7 +588,10 @@ PullApplyResult NoteStore::apply_remote(const std::vector<ApiNote>& listing) {
         up.bind_text(7, make_excerpt(n.content));
         up.bind_int64(8, l.local_id);
         ok = up.step() == SQLITE_DONE;
-        if (ok) ++result.updated;
+        if (ok) {
+            ++result.updated;
+            if (n.content != l.content) purge_unreferenced_downloads_locked(l.local_id, n.content);
+        }
     }
 
     if (ok) {
@@ -714,6 +684,7 @@ EditResult NoteStore::create_local(const std::string& content, const std::string
         ok = st.step() == SQLITE_DONE;
     }
     const int64_t id = ok ? sqlite3_last_insert_rowid(db_) : 0;
+    ok = ok && bind_staged_locked(id, content);   // in the same transaction: no saved token without its row
     if (!ok || !exec(db_, "COMMIT", &err)) {
         std::string ignored;
         exec(db_, "ROLLBACK", &ignored);
@@ -770,6 +741,7 @@ EditResult NoteStore::update_locked(int64_t local_id, const std::optional<std::s
         up.bind_int64(7, local_id);
         ok = up.step() == SQLITE_DONE;
     }
+    ok = ok && bind_staged_locked(local_id, new_content);   // in the same transaction as the save
     if (!ok || !exec(db_, "COMMIT", &err)) {
         std::string ignored;
         exec(db_, "ROLLBACK", &ignored);
@@ -960,6 +932,8 @@ ConflictResolution NoteStore::resolve_conflict(int64_t local_id, const ApiNote& 
             chk.bind_int64(1, copy_id);
             if (chk.step() != SQLITE_ROW || chk.text(0) != with_title_suffix(local.content, suffix)) return rollback();
         }
+        // attachments: pending ones move to the copy, downloaded ones are duplicated for it (research R-4)
+        if (!copy_attachments_for_conflict_locked(local_id, copy_id, local, now)) return rollback();
         out.created_copy = true;
         out.copy_local_id = copy_id;
     }
@@ -980,6 +954,7 @@ ConflictResolution NoteStore::resolve_conflict(int64_t local_id, const ApiNote& 
         up.bind_int64(8, local_id);
         if (up.step() != SQLITE_DONE) return rollback();
     }
+    purge_unreferenced_downloads_locked(local_id, server.content);   // what the server text no longer names
     if (!exec(db_, "COMMIT", &err)) return rollback();
     out.ok = true;
     return out;

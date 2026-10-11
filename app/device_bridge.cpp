@@ -1,14 +1,19 @@
 #include "device_bridge.h"
 
 #include <QCoreApplication>
+#include <QDesktopServices>
 #include <QEvent>
+#include <QFileInfo>
 #include <QGuiApplication>
 #include <QInputMethod>
 #include <QKeyEvent>
 #include <QQuickWindow>
 #include <QScreen>
 #include <QTimer>
+#include <QUrl>
 
+#include "pbnotes/attachment_ref.h"
+#include "pbnotes/links.h"
 #include "pbnotes/log.h"
 
 #ifdef PLATFORM_POCKETBOOK
@@ -126,6 +131,43 @@ bool DeviceBridge::wifiConnected() const {
 #else
     return true;
 #endif
+}
+
+bool DeviceBridge::openUrl(const QString& url) {
+    const QByteArray bytes = url.toUtf8();
+    if (!pbnotes::is_followable_url(std::string(bytes.constData(), static_cast<size_t>(bytes.size())))) {
+        pbnotes::log::event("link.open", {pbnotes::log::text("result", "rejected")});
+        return false;
+    }
+#ifdef PLATFORM_POCKETBOOK
+    // The browser is started the way InkFeed does it (see NOTICE); the app stays alive in the background.
+    OpenBook(BROWSER_FOR_AUTH, bytes.constData(), 0);
+    const bool ok = true;
+#else
+    const bool ok = QDesktopServices::openUrl(QUrl::fromEncoded(bytes));
+#endif
+    pbnotes::log::event("link.open", {pbnotes::log::text("result", ok ? "started" : "failed")});
+    return ok;
+}
+
+bool DeviceBridge::openFile(const QString& path) {
+    const QFileInfo info(path);
+    const QString dir = QFileInfo(attachmentsDir_).canonicalFilePath();
+    const QString file = info.canonicalFilePath();  // resolves links and ".."; empty if the file does not exist
+    const bool inside = !dir.isEmpty() && !file.isEmpty() && file.startsWith(dir + QLatin1Char('/'));
+    const bool viewable = pbnotes::is_viewable_extension(pbnotes::safe_extension(file.toStdString()));
+    if (!inside || !viewable || !QFileInfo(file).isFile()) {
+        pbnotes::log::event("file.open", {pbnotes::log::text("result", "rejected")});
+        return false;
+    }
+#ifdef PLATFORM_POCKETBOOK
+    OpenBook(file.toUtf8().constData(), "", 0);  // the reader application picks the viewer by file type
+    const bool ok = true;
+#else
+    const bool ok = QDesktopServices::openUrl(QUrl::fromLocalFile(file));
+#endif
+    pbnotes::log::event("file.open", {pbnotes::log::text("result", ok ? "started" : "failed")});
+    return ok;
 }
 
 void DeviceBridge::quit() {

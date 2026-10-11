@@ -17,6 +17,9 @@ struct SyncOptions {
     // Send DELETE with If-Match instead of the conditional GET + DELETE sequence. Only to be
     // enabled once the server is verified to answer 412 for a stale If-Match on DELETE (T022).
     bool delete_uses_if_match = false;
+    // The folder of the attachment files (AttachmentService). Needed to upload pending attachments; without it
+    // they stay pending (with the reason "unreadable") and the notes are still pushed without their tokens.
+    std::string attachments_dir;
 };
 
 class SyncEngine {

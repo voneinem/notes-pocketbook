@@ -13,6 +13,8 @@ These steps install the app from the release zip. They are written for the InkPa
    applications/pbnotes.app            launcher (shell script)
    applications/pbnotes.bin            the program
    applications/pbnotes-cacert.pem     bundled CA certificates
+   applications/pbnotes-emoji.ttf      monochrome emoji font (Noto Emoji)
+   applications/pbnotes-emoji-OFL.txt  license of the emoji font (SIL OFL 1.1)
    applications/icons/pbnotes.bmp
    applications/icons/pbnotes_f.bmp
    ```
@@ -44,6 +46,16 @@ The reader only lists apps that are registered in its desktop configuration.
 Open Applications, then the group you added the entry to, and start **PB Notes**. The
 launcher writes a log to `system/pbnotes/pbnotes.log`; the app's own data (the notes
 database) lives in the same folder.
+
+## Upgrading from an earlier version
+
+Copy the new `applications/` files over the old ones. On the first start the app upgrades its
+database in `system/pbnotes/` (schema version 2, for attachments); it keeps a backup during the upgrade and
+deletes it once the check passed. **The upgrade is one way**: an older build of PB Notes refuses the
+upgraded database, so keep a copy of `system/pbnotes/pbnotes.db` if you may want to go back.
+
+Attachments are stored in `system/pbnotes/attachments/` (nothing is downloaded until you tap *Download*).
+Each file is at most 10 MiB. The folder is cleaned automatically; do not put your own files there.
 
 ## Servers with a private or self-signed certificate
 

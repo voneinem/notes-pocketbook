@@ -51,6 +51,8 @@ struct SyncCounts {
     int conflicts = 0;
     int recreated = 0;
     int restored = 0;  // locally deleted notes that were changed on the server and therefore kept
+    int attachments_uploaded = 0;  // files sent to the server during this run
+    int attachments_failed = 0;    // pending attachments that could not be uploaded (they stay pending)
 };
 
 struct SyncResult {
@@ -58,6 +60,30 @@ struct SyncResult {
     std::string message_key;  // short machine-readable detail, never note content
     SyncCounts counts;
     ErrorClass error_class = ErrorClass::None;
+};
+
+// ---- attachments (spec 002, data-model.md) ----------------------------------------------------------------
+
+// The largest attachment that is added, uploaded or downloaded (10 MiB).
+constexpr int64_t kMaxAttachmentBytes = 10 * 1024 * 1024;
+
+enum class AttachmentKind { Image, File };
+
+// staged: added in the editor, not saved with a note yet; pending: saved with a note, not uploaded yet;
+// remote: the server has it, nothing downloaded; downloaded: a local copy exists.
+enum class AttachmentState { Staged, Pending, Remote, Downloaded };
+
+struct Attachment {
+    int64_t id = 0;
+    std::optional<int64_t> note_local_id;     // none only while staged
+    std::optional<std::string> remote_path;   // path relative to the note as the server knows it (decoded)
+    std::string display_name;                 // shown to the user; never used to build a local path
+    AttachmentKind kind = AttachmentKind::File;
+    std::optional<int64_t> size;              // bytes, none = not known
+    AttachmentState state = AttachmentState::Remote;
+    std::string error_key;                    // "" or the last failure reason
+    std::string local_file;                   // "<id>.<ext>" inside the attachment folder, "" = none
+    int64_t created = 0;
 };
 
 struct Account {
@@ -79,5 +105,12 @@ std::optional<NoteStatus> note_status_from_string(const std::string& s);
 const char* to_string(SyncOutcome o);
 std::optional<SyncOutcome> sync_outcome_from_string(const std::string& s);
 const char* to_string(ErrorClass e);
+const char* to_string(AttachmentKind k);
+std::optional<AttachmentKind> attachment_kind_from_string(const std::string& s);
+const char* to_string(AttachmentState s);
+std::optional<AttachmentState> attachment_state_from_string(const std::string& s);
+
+// The closed set of attachment failure reasons (Attachment::error_key); "" is "no error".
+bool is_attachment_error_key(const std::string& key);
 
 }  // namespace pbnotes

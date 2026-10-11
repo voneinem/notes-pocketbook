@@ -4,6 +4,8 @@ import QtQuick.Window
 
 // The single window. The system rotates (device.orientation), Qt resizes the window; this stage only
 // compensates the panel's devicePixelRatio so that sizes authored in panel pixels are 1:1.
+// No page sets a font family: every text inherits the application font, which carries the emoji fallback
+// (app/main.cpp).
 ApplicationWindow {
     id: win
     visible: true

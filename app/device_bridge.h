@@ -36,6 +36,18 @@ public:
     Q_INVOKABLE void connectNetwork();
     void finishConnect(bool ok);  // internal: result of the system's connect attempt
 
+    // Opens a web address in the system's default browser. Re-validates the address (http/https only, no
+    // blanks or control characters, at most 2,048 characters) and returns false if it is rejected or
+    // no browser could be started. Device: OpenBook(BROWSER_FOR_AUTH, ...); desktop: QDesktopServices.
+    Q_INVOKABLE bool openUrl(const QString& url);
+
+    // Opens a stored attachment in the reader application's viewer. Only a regular file inside the attachment
+    // folder (see setAttachmentsDirectory) whose extension the viewer handles (pdf, epub, fb2, txt, rtf, doc, docx,
+    // html, htm, djvu, mobi, cbz, cbr) is passed on. False otherwise. Device: OpenBook(path, "", 0); desktop:
+    // QDesktopServices.
+    Q_INVOKABLE bool openFile(const QString& path);
+    void setAttachmentsDirectory(const QString& directory) { attachmentsDir_ = directory; }
+
     // Leaves the app cleanly (device: whiten the panel and hand back to the launcher).
     Q_INVOKABLE void quit();
 
@@ -53,6 +65,7 @@ private:
     void rotateTo(int inkviewOrientation);
     void updateQtGeometry();
 
+    QString attachmentsDir_;
     QQuickWindow* window_ = nullptr;
     QTimer* timer_ = nullptr;
     QString preference_ = QStringLiteral("auto");

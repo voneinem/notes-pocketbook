@@ -114,21 +114,20 @@ PB_TEST(things_that_look_like_tasks_but_are_not) {
     PB_CHECK_EQ(plain(b[0]), std::string("link"));  // a link in a list item
 }
 
-PB_TEST(links_become_their_label_text) {
+PB_TEST(links_show_their_label_text) {
     auto b = content_blocks("see [the docs](https://example.com/x) now, and [**bold** link](https://a.example)");
     PB_CHECK_EQ(plain(b[0]), std::string("see the docs now, and bold link"));
 }
 
-PB_TEST(images_tables_and_code_remain_plain_text) {
-    auto b = content_blocks("![alt](https://example.com/i.png)\n| a | b |\n|---|---|\n| 1 | 2 |\n```\nint x = 1; // **not bold**\n```\ninline `code *x*` here");
-    PB_CHECK_EQ(b.size(), static_cast<size_t>(8));
-    PB_CHECK_EQ(plain(b[0]), std::string("![alt](https://example.com/i.png)"));
-    PB_CHECK_EQ(plain(b[1]), std::string("| a | b |"));
-    PB_CHECK_EQ(plain(b[2]), std::string("|---|---|"));
-    PB_CHECK_EQ(plain(b[4]), std::string("```"));
-    PB_CHECK_EQ(plain(b[5]), std::string("int x = 1; // **not bold**"));
-    PB_CHECK_EQ(b[5].spans.size(), static_cast<size_t>(1));  // no emphasis inside a code fence
-    PB_CHECK_EQ(plain(b[7]), std::string("inline `code *x*` here"));  // no emphasis inside inline code
+PB_TEST(images_tables_and_code_blocks) {
+    auto b = content_blocks("![alt](docs/i.png)\n| a | b |\n|---|---|\n| 1 | 2 |\n```\nint x = 1; // **not bold**\n```\ninline `code *x*` here");
+    PB_CHECK_EQ(b.size(), static_cast<size_t>(6));
+    PB_CHECK(b[0].kind == BlockKind::Attachment);  // a relative image is an attachment reference (spec 002)
+    PB_CHECK(b[1].kind == BlockKind::Table);  // pipe tables are drawn as tables (spec 002)
+    PB_CHECK_EQ(plain(b[2]), std::string("```"));
+    PB_CHECK_EQ(plain(b[3]), std::string("int x = 1; // **not bold**"));
+    PB_CHECK_EQ(b[3].spans.size(), static_cast<size_t>(1));  // no emphasis inside a code fence
+    PB_CHECK_EQ(plain(b[5]), std::string("inline `code *x*` here"));  // no emphasis inside inline code
 }
 
 PB_TEST(special_characters_are_preserved_for_the_renderer_to_escape) {

@@ -1,4 +1,5 @@
 #include "notes_bridge.h"
+#include "reader_blocks.h"
 
 #include <cstdio>
 #include <ctime>
@@ -7,9 +8,11 @@
 #include <QDir>
 #include <QMetaObject>
 
+#include "pbnotes/attachment_service.h"
 #include "pbnotes/ca_selector.h"
 #include "pbnotes/connection_test.h"
 #include "pbnotes/markdown.h"
+#include "pbnotes/paging.h"
 #include "pbnotes/sync_engine.h"
 #include "pbnotes/sync_status.h"
 #include "pbnotes/curl_transport.h"
@@ -87,6 +90,10 @@ void NotesBridge::refreshCa() {
                                         pbnotes::log::text("custom", status.toStdString()),
                                         pbnotes::log::count("custom_certs", eff.custom_cert_count)});
     if (changed) emit caChanged();
+}
+
+QString NotesBridge::attachmentsDir() const {
+    return config_.attachmentsDir.isEmpty() ? config_.dataDir + QStringLiteral("/attachments") : config_.attachmentsDir;
 }
 
 bool NotesBridge::configured() const { return store_ && store_->get_account().has_value(); }
@@ -228,10 +235,6 @@ bool NotesBridge::forgetAccount() {
 
 namespace {
 
-QString html_escape(const std::string& text) {
-    return QString::fromStdString(text).toHtmlEscaped();
-}
-
 // The stored title is the first line as written; a Markdown heading marker ("## Plan") is not shown.
 QString display_title(const std::string& title) {
     QString t = QString::fromStdString(title);
@@ -240,30 +243,6 @@ QString display_title(const std::string& title) {
     if (i > 0 && i < t.size() && t.at(i).isSpace()) t = t.mid(i).trimmed();
     if (t.trimmed().isEmpty()) return QStringLiteral("(empty note)");  // never an empty row title
     return t;
-}
-
-QString spans_to_html(const std::vector<pbnotes::Span>& spans) {
-    QString out;
-    for (const pbnotes::Span& s : spans) {
-        const QString t = html_escape(s.text);
-        switch (s.kind) {
-            case pbnotes::Span::Bold: out += QStringLiteral("<b>") + t + QStringLiteral("</b>"); break;
-            case pbnotes::Span::Italic: out += QStringLiteral("<i>") + t + QStringLiteral("</i>"); break;
-            case pbnotes::Span::BoldItalic: out += QStringLiteral("<b><i>") + t + QStringLiteral("</i></b>"); break;
-            case pbnotes::Span::Plain: out += t; break;
-        }
-    }
-    return out;
-}
-
-const char* block_kind(pbnotes::BlockKind k) {
-    switch (k) {
-        case pbnotes::BlockKind::Heading: return "heading";
-        case pbnotes::BlockKind::ListItem: return "listitem";
-        case pbnotes::BlockKind::Blank: return "blank";
-        case pbnotes::BlockKind::Paragraph: break;
-    }
-    return "paragraph";
 }
 
 }  // namespace
@@ -344,23 +323,22 @@ QVariantMap NotesBridge::openNote(qlonglong localId) const {
     out.insert(QStringLiteral("favorite"), note->favorite);
     out.insert(QStringLiteral("modified"), static_cast<qlonglong>(note->modified));
     out.insert(QStringLiteral("pending"), note->status != pbnotes::NoteStatus::Void);
-    QVariantList blocks;
-    for (const pbnotes::Block& b : pbnotes::parse_markdown(note->content)) {
-        QVariantMap m;
-        m.insert(QStringLiteral("kind"), QString::fromLatin1(block_kind(b.kind)));
-        m.insert(QStringLiteral("line"), b.line_index);
-        m.insert(QStringLiteral("level"), b.level);
-        m.insert(QStringLiteral("ordered"), b.ordered);
-        m.insert(QStringLiteral("number"), b.number);
-        m.insert(QStringLiteral("depth"), b.depth);
-        m.insert(QStringLiteral("task"), b.is_task);
-        m.insert(QStringLiteral("checked"), b.checked);
-        m.insert(QStringLiteral("html"), spans_to_html(b.spans));
-        blocks.append(m);
-    }
+    const QVariantList blocks = reader_blocks(*note, store_.get());
     out.insert(QStringLiteral("blocks"), blocks);
     return out;
 }
+
+double NotesBridge::pageTarget(double contentY, double viewHeight, double contentHeight, double step, int direction,
+                               const QVariantList& unsplittable) const {
+    std::vector<pbnotes::Interval> blocks;
+    for (const QVariant& v : unsplittable) {
+        const QVariantMap m = v.toMap();
+        blocks.push_back({m.value(QStringLiteral("top")).toDouble(), m.value(QStringLiteral("bottom")).toDouble()});
+    }
+    return pbnotes::page_target(contentY, viewHeight, contentHeight, step, direction, blocks);
+}
+
+QString NotesBridge::formatSize(qlonglong bytes) const { return format_size(bytes); }
 
 QString NotesBridge::fontSize() const {
     return store_ ? QString::fromStdString(store_->get_setting("font_size")) : QStringLiteral("medium");
@@ -385,6 +363,7 @@ QString sync_message_text(const std::string& key) {
         {"ok", "Synced."},
         {"up_to_date", "Everything is up to date."},
         {"partial", "Some notes could not be synced yet."},
+        {"attachments_failed", "Some attachments could not be uploaded."},
         {"offline", "The server could not be reached (offline)."},
         {"maintenance", "The server is in maintenance mode, try again later."},
         {"auth_rejected", "The server rejected the login. Check the app password."},
@@ -436,10 +415,12 @@ QString NotesBridge::syncStatus() const {
         if (st.counts.pushed) parts << QStringLiteral("%1 sent").arg(st.counts.pushed);
         if (st.counts.pulled) parts << QStringLiteral("%1 received").arg(st.counts.pulled);
         if (st.counts.deleted) parts << QStringLiteral("%1 removed").arg(st.counts.deleted);
+        if (st.counts.attachments_uploaded) parts << QStringLiteral("%1 attachment(s) uploaded").arg(st.counts.attachments_uploaded);
         if (st.counts.conflicts) parts << QStringLiteral("%1 conflict(s) - copies kept").arg(st.counts.conflicts);
         if (st.counts.restored) parts << QStringLiteral("%1 deleted note(s) restored").arg(st.counts.restored);
         text += parts.isEmpty() ? QStringLiteral(", up to date") : QStringLiteral(", ") + parts.join(QStringLiteral(", "));
-        if (st.state == "partial") text += QStringLiteral(". ") + sync_message_text("partial");
+        if (st.state == "partial")
+            text += QStringLiteral(". ") + sync_message_text(st.message_key == "attachments_failed" ? "attachments_failed" : "partial");
     } else {
         text += QStringLiteral(". ") + sync_message_text(st.message_key);
     }
@@ -456,8 +437,12 @@ void NotesBridge::syncNow() {
     const std::string ca = caPath_.toStdString();
     syncWorker_ = std::thread([this, ca]() {
         pbnotes::CurlTransport transport(ca);
-        pbnotes::SyncEngine engine(*store_, transport);
+        pbnotes::SyncOptions options;
+        options.attachments_dir = attachmentsDir().toStdString();
+        pbnotes::SyncEngine engine(*store_, transport, nullptr, options);
         const pbnotes::SyncResult r = engine.run();
+        // the sync may have removed notes or references: files nothing names any more go away
+        pbnotes::AttachmentService::purge(*store_, attachmentsDir().toStdString(), 120);   // may overlap a download
         QMetaObject::invokeMethod(this, [this, r]() {
             syncRunning_ = false;
             emit syncStateChanged();

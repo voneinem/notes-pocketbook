@@ -641,6 +641,25 @@ PB_TEST(toggling_a_task_box_saves_the_note_as_a_pending_edit) {
     PB_CHECK(!bridge.toggleTask(99999, 1));   // unknown note
 }
 
+// ---- US3: emojis ------------------------------------------------------------------------------------
+
+PB_TEST(emojis_survive_the_reader_and_the_list) {
+    pbtest::TmpDir data;
+    const std::string grin = "\U0001F600", family = "\U0001F468\u200D\U0001F469\u200D\U0001F467", flag = "\U0001F1E9\U0001F1EA";
+    seed(data, {remote_note(1, grin + " Title <x>\nLine " + family + " & " + flag + "\n", "", 100),
+                remote_note(2, grin, "", 90)});
+    NotesBridge bridge(config_for(data));
+    const QVariantList rows = bridge.listNotes();
+    PB_CHECK_EQ(rows.size(), 2);
+    PB_CHECK_EQ(rows.at(0).toMap().value("title").toString().toStdString(), grin + " Title <x>");  // a leading emoji stays
+    PB_CHECK_EQ(rows.at(1).toMap().value("title").toString().toStdString(), grin);                  // an emoji-only note is listed
+    PB_CHECK(rows.at(0).toMap().value("excerpt").toString().toStdString().find(family) != std::string::npos);
+    const qlonglong id = rows.at(0).toMap().value("localId").toLongLong();
+    const QVariantList blocks = bridge.openNote(id).value("blocks").toList();
+    PB_CHECK_EQ(blocks.at(0).toMap().value("html").toString().toStdString(), grin + " Title &lt;x&gt;");
+    PB_CHECK_EQ(blocks.at(1).toMap().value("html").toString().toStdString(), "Line " + family + " &amp; " + flag);
+}
+
 int main(int argc, char** argv) {
     QCoreApplication app(argc, argv);
     return pbtest::run_all();

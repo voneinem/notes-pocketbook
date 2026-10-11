@@ -8,6 +8,9 @@ Row {
     property Item target: null
     // Row height of a list: pages then move by whole rows, so no row is ever cut off at the top.
     property real snap: 0
+    // Blocks that must not be cut by a page break, [{top, bottom}] in content coordinates (table rows,
+    // attachments). When the list is not empty the target comes from the core's page_target.
+    property var unsplittable: []
     spacing: 24
 
     function pageBy(direction) {
@@ -15,6 +18,10 @@ Row {
         var top = target.originY !== undefined ? target.originY : 0
         var maxY = Math.max(top, top + target.contentHeight - target.height)
         var step = Math.max(100, target.height - 80)
+        if (snap <= 0 && unsplittable.length > 0) {
+            target.contentY = bridge.pageTarget(target.contentY, target.height, target.contentHeight, step, direction, unsplittable)
+            return
+        }
         if (snap > 0) {
             step = Math.max(1, Math.floor(target.height / snap)) * snap
             // the last page may end below the content, but its rows are whole

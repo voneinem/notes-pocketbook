@@ -12,7 +12,7 @@ succeed. A database written by this version is refused by the MVP build (newer s
 
 ```sql
 CREATE TABLE attachments (
-    id            INTEGER PRIMARY KEY,
+    id            INTEGER PRIMARY KEY AUTOINCREMENT,   -- ids are never reused: a token never meets a foreign row
     note_local_id INTEGER REFERENCES notes(local_id) ON DELETE CASCADE,  -- NULL while staged
     remote_path   TEXT,                -- path relative to the note as the server knows it (decoded);
                                        -- NULL until uploaded
@@ -46,7 +46,7 @@ pointing at a missing file. The user's original file is never touched.
 | `display_name` | Last path segment (remote) or the chosen file's name (local), control characters removed, at most 255 characters. Never used to build a local path. |
 | `kind` | `image` if the extension is jpg, jpeg, png, gif, bmp or webp (case-insensitive), else `file`. |
 | `size` | From the chosen file (add), `HEAD`/`Content-Length` (probe, download). NULL = unknown. Must be ≤ 10 MiB (10,485,760) for `staged`/`pending`/`downloaded` rows. |
-| `local_file` | `<id>.<ext>`, ext = lower-case original extension matching `[a-z0-9]{1,8}` or none. |
+| `local_file` | `<id>.<ext>`, ext = lower-case original extension matching `[a-z0-9]{1,8}` or none. A row made for a conflict copy shares the file name of the row it duplicates (no file is copied); a file is deleted by the janitor only when no row names it. |
 | `error_key` | `''`, `too_large`, `not_found`, `rejected`, `unsupported_server`, `storage_full`, `unreadable`, `format_unsupported`, `network`. Shown to the user as a plain sentence; never contains names or paths. |
 
 ### State machine
@@ -87,7 +87,7 @@ parameter and is never used to create a local path.
 
 ### Token operations (pure functions, Qt-free)
 
-- `attachment_tokens(content)` → ids of all `pbatt:<id>` tokens in image syntax.
+- `find_tokens(content)` → ids of all `pbatt:<id>` tokens in image syntax.
 - `replace_token(content, id, remote_path)` → text with that token's target replaced by the
   percent-encoded server path (each segment `encodeURIComponent`-style).
 - `strip_tokens(content, ids)` → text with the whole `![…](pbatt:<id>)` references removed, and one
@@ -111,7 +111,10 @@ Task-list toggling is unchanged and keeps using `line_index`; a table block span
 
 - `pending_notes()` is unchanged: a note with a pending attachment is `edited`, therefore pending in
   the list (spec FR-027).
-- New store operations used by the sync engine: `pending_attachments(note_local_id)`,
+- Adding a file is two steps (the id names the file): `stage_attachment` creates the staged row, the file is
+  copied to `<id>.part` and renamed, `set_staged_file` records it; a failure drops the row (`drop_staged`).
+- New store operations used by the sync engine: `drop_dead_tokens(note_local_id)` (a token no pending
+  attachment answers to is removed from the text before an upload), `pending_attachments(note_local_id)`,
   `record_uploaded(attachment_id, remote_path, size)` (one transaction: set state and path, replace the
   token in the note text and recompute title/excerpt, leave `modified` and `status` alone),
   `set_attachment_error(id, key)`, `discard_staged()` (binding of staged tokens happens inside `create_local`/`save_local`), `purge_unreferenced_downloads(note_local_id)` (after a pull changed the text),

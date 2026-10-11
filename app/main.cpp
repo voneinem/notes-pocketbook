@@ -5,7 +5,11 @@
 #include <QGuiApplication>
 #include <QQmlApplicationEngine>
 #include <QDir>
+#include <QFont>
+#include <QFontDatabase>
+#include <QFontInfo>
 #include <QImage>
+#include <QImageReader>
 #include <QQmlComponent>
 #include <QQmlContext>
 #include <QQuickWindow>
@@ -15,7 +19,11 @@
 #include <iostream>
 
 #include "device_bridge.h"
+#include "attachment_image_provider.h"
+#include "attachments_bridge.h"
 #include "notes_bridge.h"
+#include "pbnotes/attachment_service.h"
+#include "pbnotes/log.h"
 
 #ifdef PLATFORM_POCKETBOOK
 #include <inkview.h>
@@ -25,6 +33,26 @@ int main(int argc, char** argv) {
     QGuiApplication app(argc, argv);
     app.setApplicationName(QStringLiteral("pbnotes"));
     const bool self_test = app.arguments().contains(QStringLiteral("--self-test"));
+
+    // Emoji: the monochrome Noto Emoji font (SIL OFL, see NOTICE) is added behind the default font, so
+    // every Text/TextField/TextArea shows emojis without a per-item setting. A missing or unreadable font
+    // is not an error: the device font is used as before (spec 002 FR-015).
+#ifdef PLATFORM_POCKETBOOK
+    const QString emoji_font = QStringLiteral("/mnt/ext1/applications/pbnotes-emoji.ttf");
+#else
+    const QString emoji_font = qEnvironmentVariable("PBNOTES_EMOJI_FONT", QStringLiteral(PBNOTES_EMOJI_FONT));
+#endif
+    const int emoji_id = QFontDatabase::addApplicationFont(emoji_font);
+    const QStringList emoji_families = emoji_id >= 0 ? QFontDatabase::applicationFontFamilies(emoji_id) : QStringList();
+    if (!emoji_families.isEmpty()) {
+        QFont font = app.font();
+        // the family that is really used (the default may be a generic name such as "Sans Serif", which is
+        // not matched by name once a family list is set)
+        font.setFamilies({QFontInfo(font).family(), emoji_families.first()});
+        app.setFont(font);
+    } else {
+        pbnotes::log::event("font.emoji_missing", {});
+    }
 
 #ifdef PLATFORM_POCKETBOOK
     // PocketBook convention: app data lives under USERDATA (/mnt/ext1/system).
@@ -43,14 +71,35 @@ int main(int argc, char** argv) {
     config.dataDir = data_dir;
     config.bundledCaPath = bundled_ca;
     config.deviceCaCandidates = {QStringLiteral("/etc/ssl/certs/ca-certificates.crt"), QStringLiteral("/etc/ssl/cert.pem")};
+    config.attachmentsDir = data_dir + QStringLiteral("/attachments");
+    mkdir(config.attachmentsDir.toStdString().c_str(), 0755);
     NotesBridge notes(config);
     if (!notes.ok()) std::cerr << "[pbnotes] the database could not be opened" << std::endl;
+
+    // The janitor at start: files no attachment row names (a crash can leave some) and half-written ones go.
+    if (notes.store()) pbnotes::AttachmentService::purge(*notes.store(), config.attachmentsDir.toStdString());
+    {
+        QStringList formats;  // which picture formats this Qt can decode (format names only)
+        for (const QByteArray& f : QImageReader::supportedImageFormats()) formats << QString::fromLatin1(f);
+        pbnotes::log::event("image.formats", {pbnotes::log::text("list", formats.join(QLatin1Char(',')).toStdString())});
+    }
 
     DeviceBridge device;
     device.setRotationPreference(notes.rotationPreference());
     QObject::connect(&notes, &NotesBridge::rotationPreferenceChanged, &device,
                      [&]() { device.setRotationPreference(notes.rotationPreference()); });
+    device.setAttachmentsDirectory(config.attachmentsDir);
     app.installEventFilter(&device);  // Back / Escape
+
+    AttachmentsBridge::Config attachment_config;
+#ifdef PLATFORM_POCKETBOOK
+    attachment_config.rootDirectory = QStringLiteral("/mnt/ext1");
+#else
+    attachment_config.rootDirectory = QDir::homePath();
+#endif
+    attachment_config.openFile = [&device](const QString& path) { return device.openFile(path); };
+    attachment_config.wifiConnected = [&device]() { return device.wifiConnected(); };
+    AttachmentsBridge attachments(&notes, attachment_config);
 
     QQmlApplicationEngine engine;
     int qml_warnings = 0;
@@ -60,6 +109,9 @@ int main(int argc, char** argv) {
     });
     engine.rootContext()->setContextProperty(QStringLiteral("bridge"), &notes);
     engine.rootContext()->setContextProperty(QStringLiteral("device"), &device);
+    engine.rootContext()->setContextProperty(QStringLiteral("attachments"), &attachments);
+    if (notes.store())  // the engine owns the provider
+        engine.addImageProvider(QStringLiteral("attachment"), new AttachmentImageProvider(notes.store(), config.attachmentsDir));
     // Desktop-only start options (PBNOTES_START_PAGE / PBNOTES_START_NOTE); both are always defined,
     // empty/0 on the device, so the QML never depends on the platform.
     QString start_page;

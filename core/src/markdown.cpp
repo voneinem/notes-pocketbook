@@ -2,141 +2,84 @@
 
 #include <cctype>
 
+#include "markdown_internal.h"
+#include "pbnotes/attachment_ref.h"
+
 namespace pbnotes {
 
 namespace {
+bool is_space(char c) { return md::is_space(c); }
+}  // namespace
 
-bool is_space(char c) { return c == ' ' || c == '\t'; }
-bool is_alnum(char c) { return std::isalnum(static_cast<unsigned char>(c)) != 0; }
+namespace {
 
-void add_span(std::vector<Span>* spans, Span::Kind kind, const std::string& text) {
-    if (text.empty()) return;
-    if (!spans->empty() && spans->back().kind == kind) spans->back().text += text;
-    else spans->push_back({kind, text});
+// The source lines without their line ends (a final line break does not create an empty line).
+std::vector<std::string> split_lines(std::string_view text) {
+    std::vector<std::string> lines;
+    size_t pos = 0;
+    while (pos < text.size()) {
+        const size_t nl = text.find('\n', pos);
+        std::string line(text.substr(pos, (nl == std::string_view::npos ? text.size() : nl) - pos));
+        pos = nl == std::string_view::npos ? text.size() : nl + 1;
+        while (!line.empty() && line.back() == '\r') line.pop_back();
+        lines.push_back(std::move(line));
+    }
+    return lines;
 }
 
-std::string plain_of(const std::vector<Span>& spans) {
-    std::string s;
-    for (const auto& sp : spans) s += sp.text;
-    return s;
+std::string trimmed(const std::string& s) {
+    size_t a = 0, b = s.size();
+    while (a < b && is_space(s[a])) ++a;
+    while (b > a && is_space(s[b - 1])) --b;
+    return s.substr(a, b - a);
 }
 
-// Length of the run of `c` starting at s[i].
-size_t run_length(const std::string& s, size_t i, char c) {
-    size_t n = 0;
-    while (i + n < s.size() && s[i + n] == c) ++n;
-    return n;
-}
+// A line longer than this is shown as plain text (no formatting, links, tables or attachments): the parser
+// looks for closing delimiters from every opener, so a hostile line must not be able to make that quadratic.
+constexpr size_t kMaxParsedLine = 16384;
 
-// Finds the closing delimiter for an opener of `r` x `c` whose content starts at `from`.
-// Returns npos if there is none.
-size_t find_closer(const std::string& s, size_t from, char c, size_t r) {
-    for (size_t j = from; j < s.size(); ++j) {
-        if (s[j] == '`') {  // skip code spans
-            size_t e = s.find('`', j + 1);
-            if (e == std::string::npos) return std::string::npos;
-            j = e;
-            continue;
+// Adds the block(s) of one line of text. `proto` carries the kind and its fields (heading level, list
+// marker, task state); `body` is the text after the marker. An attachment reference ends the text segment:
+// the first text keeps `proto`'s kind, an attachment block follows for every reference, later text
+// becomes paragraphs; all with the line's index.
+void push_text_blocks(std::vector<Block>* blocks, Block proto, const std::string& body) {
+    if (body.size() > kMaxParsedLine) {
+        proto.spans = md::literal_spans(body);
+        blocks->push_back(std::move(proto));
+        return;
+    }
+    const std::vector<md::Segment> segments = md::split_attachment_refs(body);
+    bool any_ref = false;
+    for (const auto& seg : segments) any_ref = any_ref || seg.is_ref;
+    if (!any_ref) {
+        proto.spans = md::inline_spans(body);
+        blocks->push_back(std::move(proto));
+        return;
+    }
+    bool first = true;
+    for (const md::Segment& seg : segments) {
+        if (seg.is_ref) {
+            if (first && proto.is_task) {  // a task whose text starts with the reference: keep the box
+                blocks->push_back(proto);
+            }
+            Block a;
+            a.kind = BlockKind::Attachment;
+            a.line_index = proto.line_index;
+            a.attachment = seg.ref;
+            blocks->push_back(std::move(a));
+        } else if (!trimmed(seg.text).empty()) {
+            Block t;
+            if (first) {
+                t = proto;
+            } else {
+                t.kind = BlockKind::Paragraph;
+                t.line_index = proto.line_index;
+            }
+            t.spans = md::inline_spans(trimmed(seg.text));
+            blocks->push_back(std::move(t));
         }
-        if (s[j] != c || (j > from && s[j - 1] == c)) continue;  // only the start of a run
-        const size_t len = run_length(s, j, c);
-        if (len != r) { j += len - 1; continue; }
-        if (j == from || is_space(s[j - 1])) continue;                     // closer must follow non-space
-        if (c == '_' && j + len < s.size() && is_alnum(s[j + len])) continue;  // not inside a word
-        return j;
+        first = false;
     }
-    return std::string::npos;
-}
-
-void parse_inline(const std::string& s, std::vector<Span>* out, int depth = 0);
-
-// Tries to read a link "[label](url)" at s[i]; returns the index after it or npos.
-size_t read_link(const std::string& s, size_t i, std::string* label) {
-    int nest = 0;
-    size_t j = i;
-    for (; j < s.size(); ++j) {
-        if (s[j] == '[') ++nest;
-        else if (s[j] == ']' && --nest == 0) break;
-    }
-    if (j >= s.size() || j + 1 >= s.size() || s[j + 1] != '(') return std::string::npos;
-    const size_t close = s.find(')', j + 2);
-    if (close == std::string::npos) return std::string::npos;
-    *label = s.substr(i + 1, j - i - 1);
-    return close + 1;
-}
-
-void parse_inline(const std::string& s, std::vector<Span>* out, int depth) {
-    std::string literal;
-    auto flush = [&] {
-        add_span(out, Span::Plain, literal);
-        literal.clear();
-    };
-    size_t i = 0;
-    while (i < s.size()) {
-        const char c = s[i];
-        if (c == '`') {  // inline code: kept verbatim, including the backticks
-            const size_t e = s.find('`', i + 1);
-            if (e != std::string::npos) {
-                literal += s.substr(i, e - i + 1);
-                i = e + 1;
-                continue;
-            }
-        } else if (c == '\\' && i + 1 < s.size() && std::string("*_[]\\`").find(s[i + 1]) != std::string::npos) {
-            literal.push_back(s[i + 1]);
-            i += 2;
-            continue;
-        } else if (c == '!' && i + 1 < s.size() && s[i + 1] == '[') {  // images stay literal
-            literal += "![";
-            i += 2;
-            continue;
-        } else if (c == '[' && depth < 2) {
-            std::string label;
-            const size_t end = read_link(s, i, &label);
-            if (end != std::string::npos) {
-                std::vector<Span> inner;
-                parse_inline(label, &inner, depth + 1);
-                flush();
-                for (const auto& sp : inner) add_span(out, sp.kind, sp.text);
-                i = end;
-                continue;
-            }
-        } else if ((c == '*' || c == '_') && depth < 2) {
-            const size_t run = run_length(s, i, c);
-            const size_t r = run > 3 ? 3 : run;
-            const size_t after = i + run;
-            const bool opener = after < s.size() && !is_space(s[after]) && run <= 3 &&
-                                !(c == '_' && i > 0 && is_alnum(s[i - 1]));
-            if (opener) {
-                const size_t close = find_closer(s, after, c, r);
-                if (close != std::string::npos && close > after) {
-                    std::vector<Span> inner;
-                    parse_inline(s.substr(after, close - after), &inner, depth + 1);
-                    flush();
-                    add_span(out, r == 1 ? Span::Italic : r == 2 ? Span::Bold : Span::BoldItalic, plain_of(inner));
-                    i = close + r;
-                    continue;
-                }
-            }
-            literal.append(run, c);
-            i += run;
-            continue;
-        }
-        literal.push_back(c);
-        ++i;
-    }
-    flush();
-}
-
-std::vector<Span> inline_spans(const std::string& text) {
-    std::vector<Span> spans;
-    parse_inline(text, &spans);
-    return spans;
-}
-
-std::vector<Span> literal_spans(const std::string& text) {
-    std::vector<Span> spans;
-    add_span(&spans, Span::Plain, text);
-    return spans;
 }
 
 }  // namespace
@@ -144,16 +87,12 @@ std::vector<Span> literal_spans(const std::string& text) {
 std::vector<Block> parse_markdown(std::string_view text) {
     std::vector<Block> blocks;
     bool in_fence = false;
-    int line_index = 0;
-    size_t pos = 0;
-    while (pos < text.size()) {
-        size_t nl = text.find('\n', pos);
-        std::string line(text.substr(pos, (nl == std::string_view::npos ? text.size() : nl) - pos));
-        pos = nl == std::string_view::npos ? text.size() : nl + 1;
-        while (!line.empty() && line.back() == '\r') line.pop_back();
+    const std::vector<std::string> lines = split_lines(text);
+    for (size_t index = 0; index < lines.size(); ++index) {
+        const std::string& line = lines[index];
 
         Block b;
-        b.line_index = line_index++;
+        b.line_index = static_cast<int>(index);
 
         size_t indent_cols = 0, first = 0;
         while (first < line.size() && is_space(line[first])) indent_cols += line[first++] == '\t' ? 4 : 1;
@@ -166,12 +105,12 @@ std::vector<Block> parse_markdown(std::string_view text) {
         }
         if (rest.compare(0, 3, "```") == 0) {  // code fence markers and their contents are plain text
             in_fence = !in_fence;
-            b.spans = literal_spans(rest);
+            b.spans = md::literal_spans(rest);
             blocks.push_back(std::move(b));
             continue;
         }
         if (in_fence) {
-            b.spans = literal_spans(line);
+            b.spans = md::literal_spans(line);
             blocks.push_back(std::move(b));
             continue;
         }
@@ -182,8 +121,7 @@ std::vector<Block> parse_markdown(std::string_view text) {
         if (hashes >= 1 && hashes <= 6 && hashes < rest.size() && rest[hashes] == ' ' && indent_cols < 4) {
             b.kind = BlockKind::Heading;
             b.level = static_cast<int>(hashes);
-            b.spans = inline_spans(rest.substr(hashes + 1));
-            blocks.push_back(std::move(b));
+            push_text_blocks(&blocks, std::move(b), rest.substr(hashes + 1));
             continue;
         }
 
@@ -211,16 +149,73 @@ std::vector<Block> parse_markdown(std::string_view text) {
                 b.checked = body[1] != ' ';
                 body = body.size() > 4 ? body.substr(4) : std::string();
             }
-            b.spans = inline_spans(body);
-            blocks.push_back(std::move(b));
+            push_text_blocks(&blocks, std::move(b), body);
             continue;
         }
 
+        if (indent_cols < 4 && rest[0] != '>' && rest.size() <= kMaxParsedLine) {
+            const size_t used = md::read_table(lines, index, &b);
+            if (used > 0) {
+                blocks.push_back(std::move(b));
+                index += used - 1;
+                continue;
+            }
+        }
+
         b.kind = BlockKind::Paragraph;
-        b.spans = inline_spans(rest);
-        blocks.push_back(std::move(b));
+        push_text_blocks(&blocks, std::move(b), rest);
     }
     return blocks;
+}
+
+std::vector<AttachmentRef> find_attachment_refs(std::string_view text) {
+    std::vector<AttachmentRef> refs;
+    bool in_fence = false;
+    for (const std::string& line : split_lines(text)) {
+        size_t first = 0;
+        while (first < line.size() && is_space(line[first])) ++first;
+        if (line.compare(first, 3, "```") == 0) {
+            in_fence = !in_fence;
+            continue;
+        }
+        if (in_fence || line.size() > kMaxParsedLine) continue;
+        for (const md::Segment& seg : md::split_attachment_refs(line))
+            if (seg.is_ref) refs.push_back(seg.ref);
+    }
+    return refs;
+}
+
+std::string tokenize_attachment_refs(std::string_view text, const std::map<std::string, int64_t>& token_for_path) {
+    if (token_for_path.empty()) return std::string(text);
+    std::string out;
+    bool in_fence = false;
+    size_t pos = 0;
+    while (pos < text.size()) {
+        const size_t nl = text.find('\n', pos);
+        const size_t end = nl == std::string_view::npos ? text.size() : nl;
+        const std::string line(text.substr(pos, end - pos));
+        size_t first = 0;
+        while (first < line.size() && is_space(line[first])) ++first;
+        if (line.compare(first, 3, "```") == 0) in_fence = !in_fence;
+        else if (!in_fence && line.size() <= kMaxParsedLine) {
+            for (const md::Segment& seg : md::split_attachment_refs(line)) {
+                auto it = seg.is_ref ? token_for_path.find(seg.ref.path) : token_for_path.end();
+                if (it != token_for_path.end()) {
+                    const std::string name = seg.ref.name.empty() ? attachment_file_name(seg.ref.path) : seg.ref.name;
+                    out += make_token(it->second, name);
+                } else {
+                    out += seg.is_ref ? seg.raw : seg.text;
+                }
+            }
+            if (nl != std::string_view::npos) out += '\n';
+            pos = end + (nl == std::string_view::npos ? 0 : 1);
+            continue;
+        }
+        out += line;
+        if (nl != std::string_view::npos) out += '\n';
+        pos = end + (nl == std::string_view::npos ? 0 : 1);
+    }
+    return out;
 }
 
 std::string toggle_task_item(std::string_view text, int line_index) {

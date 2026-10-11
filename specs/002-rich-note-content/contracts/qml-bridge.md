@@ -35,12 +35,12 @@ undecodable file yields a null image, and the delegate then shows the placeholde
 
 | Member | Description |
 |--------|-------------|
-| `stageAttachment(path)` → `{ok, id, token, name, size, errorKey, errorText}` | Copies the file into the app folder as a staged attachment (≤ 10 MiB). The editor inserts `token` at the cursor. Runs on a worker thread; the result arrives via `stageFinished(map)` |
-| `discardStaged()` | Called when the editor is left without saving; drops staged rows (files removed by the janitor) |
+| `stageAttachment(path)` | Copies the file into the app folder as a staged attachment (≤ 10 MiB) on the worker thread; the call returns at once and the result arrives as `stageFinished({ok, id, token, name, size})` or `{ok:false, errorKey, errorText}`. The editor inserts `token` at the cursor |
+| `discardStaged()` | Called when the editor is left (saved or not); drops the staged rows no saved note names (the files are removed on the worker) |
 | `listDirectory(path)` → `[{name, dir, size}]` | Directories first, then files, case-insensitive order; hidden entries and unreadable entries skipped; empty list for unreadable paths. `rootDirectory` property gives the start folder |
 | `download(noteId, remotePath)` | Starts a download on a worker thread; signals `attachmentsChanged(noteId)` or `attachmentFailed(noteId, remotePath, text)` |
-| `probeSizes(noteId)` | If Wi-Fi is up, fills unknown sizes with short `HEAD` requests (worker thread); signals `attachmentsChanged(noteId)` |
-| `openAttachment(attachmentId)` → bool | Hands a ready file to `device.openFile` after the allow-list check; false (with `attachmentFailed`) if no viewer |
+| `probeSizes(noteId)` | If Wi-Fi is up and the server supports attachments, fills unknown sizes (at most 20 per call) with short `HEAD` requests (worker thread); signals `attachmentsChanged(noteId)` |
+| `openAttachment(attachmentId)` → bool | Hands a ready file to the system viewer (`device.openFile`, wired by `main.cpp`) after the allow-list check; false (with `attachmentFailed`) if no viewer |
 | `supported` property | True when the stored API versions include `1.4`; the editor hides/disables Add otherwise with a message |
 
 `NotesBridge.saveNote` needs no extra call: the store binds the staged attachments named by tokens in
@@ -48,12 +48,17 @@ the saved text inside the save transaction; `loadForEdit` returns the text as st
 `syncNow` results gain the attachment counts and message key `attachments_failed`
 ("Some attachments could not be uploaded.").
 
+`AttachmentsBridge::Config` carries `rootDirectory`, `openFile(path)` and `wifiConnected()` callbacks, so the
+bridge does not depend on the app's `DeviceBridge`. `NotesBridge` also exposes `formatSize(bytes)`
+("1.5 KB", "1.0 MB", "" when unknown), `pageTarget(...)`, `effectiveCaPath()`, `attachmentsDir()` and
+`refreshTrust()`.
+
 ## DeviceBridge additions
 
 | Member | Description |
 |--------|-------------|
 | `openUrl(url)` → bool | Re-validates `http`/`https`, no whitespace/control characters, ≤ 2,048 characters. Device: `OpenBook(BROWSER_FOR_AUTH, url, 0)`; host: `QDesktopServices::openUrl`. False when rejected or no browser; the UI then shows "The link could not be opened." |
-| `openFile(path)` → bool | Only inside the attachment folder and only for the extension allow-list (research R-8). False shows "No viewer for this file on this device." |
+| `openFile(path)` → bool | Only a regular file inside the attachment folder (`setAttachmentsDirectory`, canonical path) and only for the extension allow-list (research R-8). False shows "No viewer for this file on this device." |
 
 No signals; the call returns once the system took over. The app stays on the same page.
 

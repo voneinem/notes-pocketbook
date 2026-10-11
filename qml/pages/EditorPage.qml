@@ -41,7 +41,31 @@ Item {
 
     function leave() {
         Qt.inputMethod.hide()
+        attachments.discardStaged()  // files added but not saved with the note go away (saved ones are bound)
         page.StackView.view.pop()
+    }
+
+    // ---- attachments: pick a file, copy it into the app, put its token on its own line at the cursor ----
+    function openPicker() {
+        page.message = ""
+        Qt.inputMethod.hide()
+        var picker = page.StackView.view.push(Qt.resolvedUrl("FilePickerPage.qml"))
+        if (picker) picker.picked.connect(function(filePath) { attachments.stageAttachment(filePath) })
+    }
+    function insertToken(token) {
+        var t = area.text
+        var p = area.cursorPosition
+        var lineStart = p === 0 ? 0 : t.lastIndexOf("\n", p - 1) + 1
+        area.insert(lineStart, token + "\n")
+        area.cursorPosition = lineStart + token.length + 1
+        area.forceActiveFocus()
+    }
+    Connections {
+        target: attachments
+        function onStageFinished(result) {
+            if (result.ok) page.insertToken(result.token)
+            else page.message = result.errorText
+        }
     }
     function save() {
         page.message = ""
@@ -63,6 +87,7 @@ Item {
             InkButton { text: qsTr("Cancel"); onClicked: page.requestLeave() }
             InkButton { text: qsTr("Save"); onClicked: page.save() }
             InkButton { text: page.favorite ? qsTr("★ Favorite") : qsTr("Favorite"); onClicked: page.favorite = !page.favorite }
+            InkButton { text: qsTr("Attach"); enabled: attachments.supported; onClicked: page.openPicker() }
             InkButton {
                 text: qsTr("Delete")
                 visible: page.noteId > 0
@@ -87,6 +112,14 @@ Item {
                 inputMethodHints: Qt.ImhNoPredictiveText
                 background: Rectangle { color: "#ffffff"; border.width: 2; border.color: "#111111" }
             }
+        }
+        Text {
+            width: parent.width
+            visible: !attachments.supported
+            wrapMode: Text.Wrap
+            font.pixelSize: 24
+            color: "#000000"
+            text: qsTr("Attachments need a newer Notes app on the server.")
         }
         Text {
             width: parent.width

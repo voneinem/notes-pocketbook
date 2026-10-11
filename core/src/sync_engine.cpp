@@ -3,7 +3,9 @@
 #include <ctime>
 
 #include "pbnotes/api_client.h"
+#include "pbnotes/attachment_ref.h"
 #include "pbnotes/log.h"
+#include "sync_attachments.h"
 
 namespace pbnotes {
 
@@ -71,7 +73,9 @@ SyncResult SyncEngine::run() {
     if (store_.get_account()) store_.record_sync_result(result, clock_());
     log::event("sync.finished", {log::text("outcome", to_string(result.outcome)),
                                  log::text("error_class", to_string(result.error_class)),
-                                 log::count("pulled", result.counts.pulled), log::count("deleted", result.counts.deleted)});
+                                 log::count("pulled", result.counts.pulled), log::count("deleted", result.counts.deleted),
+                                 log::count("att_uploaded", result.counts.attachments_uploaded),
+                                 log::count("att_failed", result.counts.attachments_failed)});
     running_.store(false);
     return result;
 }
@@ -130,28 +134,44 @@ SyncResult SyncEngine::run_locked() {
     for (size_t qi = 0; qi < queue.size(); ++qi) {
         const Note note = queue[qi];
         if (note.status == NoteStatus::Edited) {
-            WriteResult w;
+            // attachments first: the files must be on the server before any text refers to them (spec 002)
+            Note cur = note;
+            std::string outgoing = note.content;
             bool recreated = false;
-            if (!note.remote_id) {
-                w = api.create_note(draft_of(note));
+            const AttachmentPrep prep = prepare_note_attachments(store_, api, options_.attachments_dir,
+                                                                 supports_attachments(api_versions), note);
+            counts.attachments_uploaded += prep.uploaded;
+            counts.attachments_failed += prep.failed;
+            if (prep.abort) return abort_with(prep.abort_class);
+            if (prep.note_failed) { ++failed_notes; continue; }
+            cur = prep.note;
+            outgoing = prep.outgoing;
+            recreated = prep.recreated;
+
+            NoteDraft draft = draft_of(cur);
+            draft.content = outgoing;  // the local text may still hold tokens that never go to the server
+            const NoteStore::PushSnapshot sent{outgoing, cur.category, cur.favorite};
+            WriteResult w;
+            if (!cur.remote_id) {
+                w = api.create_note(draft);
             } else {
-                w = api.update_note(*note.remote_id, draft_of(note), note.etag.value_or(""));
+                w = api.update_note(*cur.remote_id, draft, cur.etag.value_or(""));
                 if (w.not_found) {  // deleted on the server: create it again from the local text
-                    if (!store_.clear_remote_identity(note.local_id)) { ++failed_notes; continue; }
+                    if (!store_.clear_remote_identity(cur.local_id)) { ++failed_notes; continue; }
                     recreated = true;
-                    w = api.create_note(draft_of(note));
+                    w = api.create_note(draft);
                 } else if (w.precondition_failed) {
                     // Changed on the server since we last saw it (HTTP 412): never overwritten. Fetch the
                     // server's version, keep BOTH (server version = original, ours = uploaded copy).
-                    const NoteResult server = api.get_note(*note.remote_id);
+                    const NoteResult server = api.get_note(*cur.remote_id);
                     if (is_abort_class(server.error)) return abort_with(server.error);
                     if (server.error != ErrorClass::None) { ++failed_notes; continue; }
                     if (server.not_found) {  // vanished meanwhile: same as a 404 on the PUT
-                        if (!store_.clear_remote_identity(note.local_id)) { ++failed_notes; continue; }
+                        if (!store_.clear_remote_identity(cur.local_id)) { ++failed_notes; continue; }
                         recreated = true;
-                        w = api.create_note(draft_of(note));
+                        w = api.create_note(draft);
                     } else if (server.note) {
-                        const ConflictResolution res = store_.resolve_conflict(note.local_id, *server.note, clock_());
+                        const ConflictResolution res = store_.resolve_conflict(cur.local_id, *server.note, clock_());
                         if (!res.ok) { ++failed_notes; continue; }
                         if (res.created_copy) {
                             ++counts.conflicts;
@@ -166,7 +186,7 @@ SyncResult SyncEngine::run_locked() {
             }
             if (is_abort_class(w.error)) return abort_with(w.error);
             if (w.error != ErrorClass::None || !w.note) { ++failed_notes; continue; }
-            if (!store_.confirm_push(note.local_id, *w.note, snapshot_of(note))) { ++failed_notes; continue; }
+            if (!store_.confirm_push(cur.local_id, *w.note, sent)) { ++failed_notes; continue; }
             ++counts.pushed;
             if (recreated) ++counts.recreated;
         } else if (note.status == NoteStatus::Deleted) {
@@ -206,9 +226,11 @@ SyncResult SyncEngine::run_locked() {
                                       : api.list_notes(account->collection_etag, account->collection_last_modified);
     if (list.error != ErrorClass::None) return abort_with(list.error);
     result.counts = counts;
+    // A pending attachment that could not be uploaded is not an error of the run, but it is not finished either.
+    const bool attachments_pending = counts.attachments_failed > 0;
     if (list.not_modified) {
-        result.outcome = failed_notes ? SyncOutcome::Partial : SyncOutcome::Success;
-        result.message_key = failed_notes ? "partial" : "up_to_date";
+        result.outcome = failed_notes || attachments_pending ? SyncOutcome::Partial : SyncOutcome::Success;
+        result.message_key = failed_notes ? "partial" : attachments_pending ? "attachments_failed" : "up_to_date";
         if (account->api_versions != api_versions)
             store_.set_collection_state(account->collection_etag, account->collection_last_modified, api_versions);
         return result;
@@ -249,8 +271,8 @@ SyncResult SyncEngine::run_locked() {
     store_.set_collection_state(list.etag, list.last_modified, api_versions);
     // A list requested without validator was complete, so every title in it is the server's.
     if (full_pull || !account->collection_etag || account->collection_etag->empty()) store_.mark_titles_refreshed();
-    result.outcome = failed_notes ? SyncOutcome::Partial : SyncOutcome::Success;
-    result.message_key = failed_notes ? "partial" : "ok";
+    result.outcome = failed_notes || attachments_pending ? SyncOutcome::Partial : SyncOutcome::Success;
+    result.message_key = failed_notes ? "partial" : attachments_pending ? "attachments_failed" : "ok";
     result.counts.pulled = applied.inserted + applied.updated + fetched;
     result.counts.deleted = applied.removed;
     return result;

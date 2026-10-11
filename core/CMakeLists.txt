@@ -15,15 +15,24 @@ set(PBNOTES_CORE_SOURCES
     src/types.cpp
     src/http_transport.cpp
     src/title.cpp
+    src/utf8.cpp
     src/ca_selector.cpp
     src/log.cpp
     src/note_store.cpp
+    src/note_store_attachments.cpp
     src/json.cpp
     src/api_client.cpp
+    src/attachment_service.cpp
     src/connection_test.cpp
     src/curl_transport.cpp
+    src/links.cpp
+    src/attachment_ref.cpp
     src/markdown.cpp
+    src/markdown_inline.cpp
+    src/markdown_table.cpp
+    src/paging.cpp
     src/sync_engine.cpp
+    src/sync_attachments.cpp
     src/sync_status.cpp
 )
 

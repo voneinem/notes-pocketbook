@@ -52,4 +52,38 @@ const char* to_string(ErrorClass e) {
     return "none";
 }
 
+const char* to_string(AttachmentKind k) { return k == AttachmentKind::Image ? "image" : "file"; }
+
+std::optional<AttachmentKind> attachment_kind_from_string(const std::string& s) {
+    if (s == "image") return AttachmentKind::Image;
+    if (s == "file") return AttachmentKind::File;
+    return std::nullopt;
+}
+
+const char* to_string(AttachmentState s) {
+    switch (s) {
+        case AttachmentState::Staged: return "staged";
+        case AttachmentState::Pending: return "pending";
+        case AttachmentState::Remote: return "remote";
+        case AttachmentState::Downloaded: return "downloaded";
+    }
+    return "remote";
+}
+
+std::optional<AttachmentState> attachment_state_from_string(const std::string& s) {
+    if (s == "staged") return AttachmentState::Staged;
+    if (s == "pending") return AttachmentState::Pending;
+    if (s == "remote") return AttachmentState::Remote;
+    if (s == "downloaded") return AttachmentState::Downloaded;
+    return std::nullopt;
+}
+
+bool is_attachment_error_key(const std::string& key) {
+    static const char* const kKeys[] = {"",          "too_large",  "not_found",          "rejected",           "unsupported_server",
+                                        "storage_full", "unreadable", "format_unsupported", "network"};
+    for (const char* k : kKeys)
+        if (key == k) return true;
+    return false;
+}
+
 }  // namespace pbnotes

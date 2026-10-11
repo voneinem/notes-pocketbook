@@ -69,7 +69,7 @@ struct PullApplyResult {
 
 class NoteStore {
 public:
-    static constexpr int kSchemaVersion = 1;
+    static constexpr int kSchemaVersion = 2;
 
     struct OpenOptions {
         // Test hook: called after the pre-migration backup was written, with the backup path;
@@ -206,6 +206,54 @@ public:
     // 0 switches the injection off. Used to prove that multi-statement operations are atomic.
     void test_fail_nth_write(int n);
 
+    // ---- attachments: queries and the download side (spec 002, data-model.md) --------------------------------
+    // A row per attachment the app knows about. Paths are validated (attachment_ref.h) and never become local
+    // paths: the local file is always "<id>.<ext>". Rows follow their note (ON DELETE CASCADE).
+    std::optional<Attachment> get_attachment(int64_t id) const;
+    std::optional<Attachment> attachment_for(int64_t note_local_id, const std::string& remote_path) const;
+    // The row for a reference found in a note's text, created as `remote` (nothing downloaded, size unknown)
+    // if there is none; nullopt for an unknown note or an invalid path. display_name and kind are derived from
+    // the path (control characters removed, at most 255 characters; image extensions jpg jpeg png gif bmp webp).
+    std::optional<Attachment> ensure_attachment(int64_t note_local_id, const std::string& remote_path);
+    // Remembers a size learned from a HEAD answer (creates a `remote` row if needed). Refused for a negative size,
+    // an unknown note, and, for a row that is not `remote`, a size over kMaxAttachmentBytes.
+    bool record_size(int64_t note_local_id, const std::string& remote_path, int64_t size);
+    // The file `<id>.<ext>` (local_file) was stored completely: the row becomes `downloaded` with its size and
+    // loses any error. Creates the row if needed. Refused when size is outside [0, kMaxAttachmentBytes], when
+    // local_file is not "<row id>" or "<row id>.<[a-z0-9]{1,8}>", or for an unknown note or invalid path.
+    bool record_downloaded(int64_t note_local_id, const std::string& remote_path, int64_t size, const std::string& local_file);
+    // Sets the failure reason of a row ("" clears it; otherwise one of the closed set in types.h). By row id, or
+    // (id 0) by note and path, creating a `remote` row if needed. False for an unknown row, note or key.
+    bool set_attachment_error(int64_t id, int64_t note_local_id, const std::string& remote_path, const std::string& error_key);
+    // File names of every row that names a local file (for the janitor).
+    std::vector<std::string> referenced_local_files() const;
+    // Deletes the `downloaded` rows of a note whose path its text no longer references (a pull changed the
+    // text). `remote`, `pending` and `staged` rows are kept; the files are removed by the janitor.
+    void purge_unreferenced_downloads(int64_t note_local_id);
+
+    // ---- attachments: adding and uploading (spec 002 US5, data-model.md state machine) ---------------------
+    // A file chosen in the editor: first a `staged` row without a note and without a file (the id names the
+    // file), then set_staged_file once the copy is complete. A staged row is bound to the note by saving the
+    // note whose text carries its token: create_local and save_local do that INSIDE the save transaction
+    // (tokens of unknown rows, of rows already bound to another note and of rows without a file are ignored),
+    // so a saved token never points at an unbound row. The row becomes `pending` (waiting for the upload).
+    std::optional<Attachment> stage_attachment(const std::string& display_name, int64_t now);
+    bool set_staged_file(int64_t id, int64_t size, const std::string& local_file);
+    bool drop_staged(int64_t id);   // a staged row that has no note; false otherwise
+    // Cleanup after the editor was left or the app (re)started: staged rows no note's text names are dropped;
+    // one a saved note does name (a crash between the save and the binding) is bound after all. The files of
+    // dropped rows are removed by the janitor.
+    bool discard_staged();
+    std::vector<Attachment> pending_attachments(int64_t note_local_id) const;   // state pending, oldest first
+    // Removes from a note's text every token no pending attachment of that note answers to (a dangling reference
+    // that could never be uploaded); the status and `modified` stay. Returns false on a store failure.
+    bool drop_dead_tokens(int64_t note_local_id);
+    // The server stored the file under `remote_path`: ONE transaction sets path, size and state `downloaded`
+    // (the local file is kept), replaces the token in the note's text by the percent-encoded path and
+    // recomputes title and excerpt. `modified`, `status` and the ETag stay as they are. Idempotent; refused
+    // for a row that is not pending, an invalid path or a size outside [0, kMaxAttachmentBytes].
+    bool record_uploaded(int64_t id, const std::string& remote_path, int64_t size);
+
     // ---- sync bookkeeping (account row) ------------------------------------------------------
     bool set_collection_state(const std::optional<std::string>& etag, int64_t last_modified,
                               const std::string& api_versions);
@@ -216,6 +264,16 @@ private:
     EditResult update_locked(int64_t local_id, const std::optional<std::string>& content,
                              const std::optional<std::string>& category, const std::optional<bool>& favorite,
                              int64_t now);
+
+    // Row mapping and the shared work of the attachment operations (note_store_attachments.cpp); the caller
+    // holds mutex_.
+    std::optional<Attachment> attachment_by_key_locked(int64_t note_local_id, const std::string& remote_path) const;
+    std::optional<Attachment> ensure_attachment_locked(int64_t note_local_id, const std::string& remote_path);
+    void purge_unreferenced_downloads_locked(int64_t note_local_id, const std::string& content);
+    bool bind_staged_locked(int64_t note_local_id, const std::string& content);
+    // Conflict copy: moves the pending attachments of `original` to `copy` and duplicates the downloaded ones its
+    // text names for the copy; returns false on a store failure (the caller rolls back).
+    bool copy_attachments_for_conflict_locked(int64_t original, int64_t copy, const Note& local, int64_t now);
 
     sqlite3* db_ = nullptr;
     int fail_nth_write_ = 0;

@@ -30,7 +30,8 @@ else()
         target_include_directories(pbnotes_app PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
         target_compile_definitions(pbnotes_app PRIVATE
             PBNOTES_VERSION="${PBNOTES_VERSION}"
-            PBNOTES_BUNDLED_CA="${CMAKE_SOURCE_DIR}/third_party/cacert/cacert.pem")
+            PBNOTES_BUNDLED_CA="${CMAKE_SOURCE_DIR}/third_party/cacert/cacert.pem"
+            PBNOTES_EMOJI_FONT="${CMAKE_SOURCE_DIR}/third_party/noto-emoji/NotoEmoji.ttf")
         target_link_libraries(pbnotes_app PRIVATE pbnotes_bridge Qt6::Core Qt6::Gui Qt6::Qml Qt6::Quick)
         set_target_properties(pbnotes_app PROPERTIES OUTPUT_NAME "${PBNOTES_APP_NAME}")
         # The UI must load without QML errors (offscreen platform, no display needed).

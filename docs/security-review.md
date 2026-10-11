@@ -78,3 +78,34 @@ is 1.2.
 - **O5** `gitleaks` is not installed on the development machine; the built-in scan is weaker.
 - **O6** The Qt UI (bridge, QML pages, device build of the full app) has not been implemented or
   reviewed yet.
+
+## 5. Rich note content (feature 002: links, tables, emojis, attachments)
+
+Date: 2026-10-11. Scope: the new Qt-free core code, the bridge and the device glue. Everything below that says
+"device" is not yet verified on the reader (tasks T018, T027, T036, T061, T077, T083).
+
+| Concern | What was checked | Evidence |
+|---------|------------------|----------|
+| Attachment references from notes and from the server are hostile input | A reference is used only if, after percent-decoding each segment, it is non-empty, at most 1,024 bytes, has no NUL, control character or backslash, no scheme, no leading `/` and a non-empty file name; a bad or truncated escape and a decoded `/` inside a segment fail. The server's `filename` answer goes through the same validation | `test_attachment_ref`, `test_markdown_attachments`, `test_api_attachment_upload` (invalid answers are `rejected`) |
+| No local path is built from a note or server string | Local files are `<row id>` or `<row id>.<[a-z0-9]{1,8}>` only; `record_downloaded` and `set_staged_file` refuse any other name; the image provider only opens such names; the janitor only deletes such names (and `*.part`) | `test_store_attachments` (`local_file_is_an_id_with_a_safe_extension_or_nothing`), `test_sync_attachments` (`the_remote_path_never_becomes_a_local_path`, the janitor test), `test_attachment_image_provider` |
+| Links: only `http`/`https` are ever opened | `is_followable_url` (scheme, host, no blanks/control characters, 2,048 bytes) is applied in the parser and again in `DeviceBridge::openUrl` before `OpenBook`; the UI receives link indexes (`l<N>`), never raw addresses in markup | `test_links`, `test_markdown_links`, `test_reader_blocks` |
+| The viewer hand-off cannot be pointed at other files | `DeviceBridge::openFile` accepts only a regular file whose canonical path is inside the attachment folder (a link that leaves it is rejected) and whose extension is on the allow-list | code review; device check T061 |
+| Credentials on attachment requests | Same transport as notes: TLS verification always on, `https` only, credentials not forwarded to another host, no redirect to `http`; checked for downloads, HEAD and multipart uploads | `test_attachment_transport`, `test_attachment_upload_transport` |
+| Size limits | 10 MiB for download (header and running total), add (before and while copying) and upload (before sending); a body over the limit leaves no file | `test_attachment_transport`, `test_api_attachments`, `test_attachment_service_add`, `test_api_attachment_upload` |
+| Decompression bombs | An image of more than 40 million pixels is refused before decoding (Qt's own allocation limit applies as well); decoding is scaled and runs off the UI thread | `test_attachment_image_provider` |
+| Hostile text makes the parser slow | A line longer than 16,384 bytes is shown as plain text, so many unmatched openers cannot make the inline parser quadratic | `test_perf_read` (`hostile_lines_are_parsed_in_linear_time`) |
+| The user's own files | The add flow only reads the source (hash and modification time unchanged); the janitor never deletes a name this app does not create | `test_attachment_service_add`, `test_sync_attachments` |
+| Logs | Only result words, counts and error classes: no address, file name or path; rule R6 of `check-constitution.sh` rejects log keys named like `url`, `path`, `file`, `name`, `address` (self-tested) | `check_constitution`, `check_constitution_selftest` |
+| Data safety (Principle VI) | The note text is the source of truth; a file reaches the server before any reference to it; a failed or interrupted upload leaves the token in the local text and sends the text without it; the staged-to-pending binding and the token rewrite are single transactions (failure injection); a conflict copy keeps or duplicates its attachments | `test_store_attachments_staging`, `test_sync_attachments_push` |
+
+Accepted risks and open items:
+
+- The attachment folder is a normal folder on the device's FAT partition: no file permissions exist there, so
+  anyone with USB access can read downloaded attachments (the same as the notes database).
+- The file picker shows the whole storage: a user who deliberately attaches the app's own database would upload
+  the stored app password into a note. This is a user action, not something the app does by itself.
+- A decoder bug in the device's Qt image plugins cannot be ruled out; the formats the device supports are logged
+  at start (`image.formats`) and unsupported ones fall back to a file entry.
+- Not verified against a real server: the exact answers of the attachment endpoints (HEAD length, upload name,
+  error statuses); the fixtures are `.unverified` until probe T005 is done.
+

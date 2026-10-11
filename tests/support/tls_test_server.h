@@ -165,6 +165,19 @@ private:
             req.append(buf, buf + n);
             if (req.size() > (1 << 20)) break;
         }
+        // a request with a body (an upload): read it completely so the client can finish sending
+        const size_t head_end = req.find("\r\n\r\n");
+        if (head_end != std::string::npos) {
+            std::string low = req.substr(0, head_end);
+            for (char& c : low) c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+            const size_t cl = low.find("content-length:");
+            const size_t want = cl == std::string::npos ? 0 : static_cast<size_t>(std::atoll(low.c_str() + cl + 15));
+            while (req.size() < head_end + 4 + want && req.size() < (64u << 20)) {
+                int n = SSL_read(ssl, buf, sizeof buf);
+                if (n <= 0) break;
+                req.append(buf, buf + n);
+            }
+        }
         if (req.empty()) {  // TLS 1.3: the server can finish before the client's rejection arrives
             ++failed_handshakes_;
             SSL_free(ssl);

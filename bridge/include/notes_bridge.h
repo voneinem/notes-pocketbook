@@ -50,6 +50,7 @@ public:
         QString dataDir;                // holds pbnotes.db, custom-ca.pem, effective-ca.pem
         QString bundledCaPath;          // the CA file shipped with the app
         QStringList deviceCaCandidates; // the reader's own CA files, tried first
+        QString attachmentsDir;         // downloaded and staged attachment files; empty = <dataDir>/attachments
     };
 
     explicit NotesBridge(const Config& config, QObject* parent = nullptr);
@@ -66,6 +67,11 @@ public:
     QString customCaStatus() const { return customCaStatus_; }
     int customCaCertificates() const { return customCaCertificates_; }
     QString customCaPath() const { return config_.dataDir + QStringLiteral("/custom-ca.pem"); }
+    // The CA file the transport trusts right now (for the attachment worker), and the attachment folder.
+    QString effectiveCaPath() const { return caPath_; }
+    QString attachmentsDir() const;
+    // Re-reads the CA setup (device store, bundled file, custom-ca.pem) before a network operation.
+    void refreshTrust() { refreshCa(); }
     bool busy() const { return busy_; }
     QString rotationPreference() const;
     void setRotationPreference(const QString& preference);
@@ -90,6 +96,12 @@ public:
     // ("heading"|"paragraph"|"listitem"|"blank"), line, level, ordered, number, depth, task, checked,
     // html}]}. html is escaped text with <b>/<i> only (Text.StyledText). Empty map if unknown.
     Q_INVOKABLE QVariantMap openNote(qlonglong localId) const;
+    // "1.5 KB", "1.0 MB"; "" for an unknown (negative) size.
+    Q_INVOKABLE QString formatSize(qlonglong bytes) const;
+    // Scroll offset of the next/previous page that does not cut a table row or an attachment: wraps the
+    // core's page_target. `unsplittable` is a list of {top, bottom} maps in content coordinates.
+    Q_INVOKABLE double pageTarget(double contentY, double viewHeight, double contentHeight, double step,
+                                  int direction, const QVariantList& unsplittable) const;
     // ---- editing (all offline; every change stays pending until a sync sends it) ----------------
     // {text, category, favorite} for the editor; empty map if the note is unknown or deleted.
     Q_INVOKABLE QVariantMap loadForEdit(qlonglong localId) const;

@@ -1,8 +1,12 @@
 #include "pbnotes/api_client.h"
 
+#include <sys/stat.h>
+
 #include <cstdio>
+#include <cstdlib>
 #include <cstring>
 
+#include "pbnotes/attachment_ref.h"
 #include "pbnotes/json.h"
 #include "pbnotes/version.h"
 
@@ -310,6 +314,166 @@ DeleteResult ApiClient::delete_note(int64_t id, const std::string& stored_etag) 
     }
     result.outcome = DeleteOutcome::Deleted;
     return result;
+}
+
+// ---- attachments -------------------------------------------------------------------------------------
+
+bool supports_attachments(const std::string& api_versions) {
+    size_t pos = 0;
+    while (pos < api_versions.size()) {
+        size_t end = api_versions.find(',', pos);
+        if (end == std::string::npos) end = api_versions.size();
+        std::string tok = api_versions.substr(pos, end - pos);
+        const size_t b = tok.find_first_not_of(" \t");
+        const size_t e = tok.find_last_not_of(" \t");
+        tok = b == std::string::npos ? std::string() : tok.substr(b, e - b + 1);
+        if (tok == "1.4") return true;
+        pos = end + 1;
+    }
+    return false;
+}
+
+namespace {
+
+// Percent-encodes everything except the unreserved characters (a query value, like encodeURIComponent).
+std::string percent_encode_component(const std::string& s) {
+    static const char kHex[] = "0123456789ABCDEF";
+    std::string out;
+    for (unsigned char c : s) {
+        if ((c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') || c == '-' || c == '.' || c == '_' || c == '~') {
+            out.push_back(static_cast<char>(c));
+        } else {
+            out.push_back('%');
+            out.push_back(kHex[c >> 4]);
+            out.push_back(kHex[c & 0xF]);
+        }
+    }
+    return out;
+}
+
+// A Content-Length value: digits only; nullopt otherwise.
+std::optional<int64_t> parse_length(const std::string& v) {
+    if (v.empty() || v.size() > 15) return std::nullopt;
+    int64_t n = 0;
+    for (char c : v) {
+        if (c < '0' || c > '9') return std::nullopt;
+        n = n * 10 + (c - '0');
+    }
+    return n;
+}
+
+}  // namespace
+
+std::string ApiClient::attachment_url(int64_t note_remote_id, const std::string& remote_path) const {
+    return creds_.server_url + "/index.php/apps/notes/api/v1.4/attachment/" + std::to_string(note_remote_id) +
+           "?path=" + percent_encode_component(remote_path);
+}
+
+AttachmentFetchResult ApiClient::download_attachment(int64_t note_remote_id, const std::string& remote_path,
+                                                     const std::string& dest_part_path, int64_t max_bytes) {
+    AttachmentFetchResult result;
+    Request req = make_request("GET", attachment_url(note_remote_id, remote_path));
+    for (auto& h : req.headers)
+        if (h.first == "Accept") h.second = "*/*";  // a file, not JSON
+    req.save_body_to = dest_part_path;
+    req.max_body_bytes = max_bytes;
+    req.total_timeout_s = 600;  // up to 10 MiB over a slow connection
+    const Response resp = transport_.perform(req);
+    result.status = resp.status;
+    result.detail = resp.error_detail;
+    if (resp.body_too_large) {
+        result.too_large = true;
+        return result;
+    }
+    if (resp.storage_full) {
+        result.storage_full = true;
+        return result;
+    }
+    result.error = classify_response(resp);
+    if (resp.status == 0 || result.error == ErrorClass::Auth || result.error == ErrorClass::Maintenance) return result;
+    if (resp.status == 404) {
+        result.error = ErrorClass::None;
+        result.not_found = true;
+    } else if (resp.status == 400) {
+        result.error = ErrorClass::None;
+        result.unsupported = true;
+    } else if (resp.status < 200 || resp.status >= 300) {
+        result.rejected = true;  // error stays ErrorClass::Server
+    } else {
+        struct stat st;
+        if (::stat(dest_part_path.c_str(), &st) == 0) result.size = static_cast<int64_t>(st.st_size);
+        else result.error = ErrorClass::Server;  // a 2xx without a stored file: do not pretend success
+    }
+    return result;
+}
+
+AttachmentUploadResult ApiClient::upload_attachment(int64_t note_remote_id, const std::string& file_path,
+                                                    const std::string& display_name) {
+    AttachmentUploadResult result;
+    struct stat st;
+    if (::stat(file_path.c_str(), &st) != 0 || !S_ISREG(st.st_mode)) {
+        result.unreadable = true;
+        return result;
+    }
+    if (st.st_size > kMaxAttachmentBytes) {
+        result.too_large = true;
+        return result;
+    }
+    Request req = make_request("POST", creds_.server_url + "/index.php/apps/notes/api/v1.4/attachment/" + std::to_string(note_remote_id));
+    req.upload_file = file_path;
+    req.upload_field = "file";
+    req.upload_file_name = display_name;
+    req.total_timeout_s = 600;
+    const Response resp = transport_.perform(req);
+    result.status = resp.status;
+    result.detail = resp.error_detail;
+    result.error = classify_response(resp);
+    if (resp.status == 0) {
+        if (resp.error_detail == "the upload file cannot be read") {  // the transport could not read it either
+            result.error = ErrorClass::None;
+            result.unreadable = true;
+        }
+        return result;
+    }
+    if (result.error == ErrorClass::Auth || result.error == ErrorClass::Maintenance) return result;
+    if (resp.status == 413) { result.error = ErrorClass::None; result.too_large = true; return result; }
+    if (resp.status == 400) { result.error = ErrorClass::None; result.unsupported = true; return result; }
+    if (resp.status == 404) { result.error = ErrorClass::None; result.not_found = true; return result; }
+    if (resp.status < 200 || resp.status >= 300) {
+        result.rejected = true;  // error stays ErrorClass::Server
+        return result;
+    }
+    auto doc = json::parse(resp.body);
+    auto filename = doc && doc->is_object() ? doc->get_string("filename") : std::nullopt;
+    auto path = filename ? validate_attachment_path(*filename) : std::nullopt;
+    if (!path) {
+        result.rejected = true;
+        result.error = ErrorClass::Server;
+        result.detail = "the server's answer is not a valid file path";
+        return result;
+    }
+    result.remote_path = *path;
+    return result;
+}
+
+AttachmentProbeResult ApiClient::probe_attachment(int64_t note_remote_id, const std::string& remote_path) {
+    AttachmentProbeResult result;
+    Request req = make_request("HEAD", attachment_url(note_remote_id, remote_path));
+    req.connect_timeout_s = 3;
+    req.total_timeout_s = 3;
+    const Response resp = transport_.perform(req);
+    result.status = resp.status;
+    const ErrorClass cls = classify_response(resp);
+    if (resp.status == 0 || cls == ErrorClass::Auth || cls == ErrorClass::Maintenance) {
+        result.error = cls;
+        return result;
+    }
+    if (resp.status == 404) {
+        result.not_found = true;
+        return result;
+    }
+    if (resp.status >= 200 && resp.status < 300) result.size = parse_length(header_value(resp.headers, "Content-Length"));
+    return result;  // any other status: the size is simply not known
 }
 
 }  // namespace pbnotes

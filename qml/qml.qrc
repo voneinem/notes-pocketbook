@@ -3,12 +3,17 @@
         <file>Main.qml</file>
         <file>InkButton.qml</file>
         <file>PageButtons.qml</file>
+        <file>BlockText.qml</file>
+        <file>TableRowView.qml</file>
+        <file>AttachmentView.qml</file>
         <file>ConfirmDialog.qml</file>
         <file>ChoiceDialog.qml</file>
         <file>pages/SetupPage.qml</file>
         <file>pages/NoteListPage.qml</file>
         <file>pages/ReaderPage.qml</file>
         <file>pages/EditorPage.qml</file>
+        <file>pages/ImagePage.qml</file>
+        <file>pages/FilePickerPage.qml</file>
         <file>pages/SettingsPage.qml</file>
     </qresource>
 </RCC>

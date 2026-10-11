@@ -76,6 +76,42 @@ struct DeleteResult {
     std::string detail;
 };
 
+// ---- attachments (spec 002, contracts/notes-attachments-api.md) -----------------------------------------
+
+// True if the stored X-Notes-API-Versions list ("1.0, 1.3, 1.4") contains the token "1.4".
+bool supports_attachments(const std::string& api_versions);
+
+struct AttachmentFetchResult {
+    ErrorClass error = ErrorClass::None;  // a failure of the connection or the account (not of this file)
+    long status = 0;
+    bool not_found = false;     // 404
+    bool too_large = false;     // Content-Length or the body exceeded the limit; nothing was stored
+    bool unsupported = false;   // 400: the server has no attachment API
+    bool rejected = false;      // any other error status
+    bool storage_full = false;  // the file could not be written on this device
+    std::optional<int64_t> size;  // bytes stored, on success
+    std::string detail;
+};
+
+struct AttachmentProbeResult {
+    ErrorClass error = ErrorClass::None;
+    long status = 0;
+    bool not_found = false;
+    std::optional<int64_t> size;  // Content-Length of the HEAD answer, if it had one
+};
+
+struct AttachmentUploadResult {
+    ErrorClass error = ErrorClass::None;  // a failure of the connection or the account
+    long status = 0;
+    bool too_large = false;     // the file is over the limit (checked before sending) or the server said 413
+    bool unreadable = false;    // the local file cannot be read; nothing was sent
+    bool unsupported = false;   // 400: the server has no attachment API
+    bool not_found = false;     // 404: the note does not exist on the server (any more)
+    bool rejected = false;      // any other refusal, or an answer that is not a valid path
+    std::string remote_path;    // on success: the path the server stored the file under (validated)
+    std::string detail;
+};
+
 class ApiClient {
 public:
     struct Credentials {
@@ -105,8 +141,21 @@ public:
     DeleteResult delete_note(int64_t id, const std::string& stored_etag);
     void set_delete_uses_if_match(bool enabled) { delete_uses_if_match_ = enabled; }
 
+    // GET .../api/v1.4/attachment/<noteId>?path=<path>: streams the file into `dest_part_path` (written only for
+    // a 2xx answer; removed on any failure) and stops at `max_bytes`. No If-Match: attachments are plain files.
+    AttachmentFetchResult download_attachment(int64_t note_remote_id, const std::string& remote_path,
+                                              const std::string& dest_part_path, int64_t max_bytes);
+    // POST .../api/v1.4/attachment/<noteId> as multipart/form-data with the single field `file` (the part's file
+    // name is `display_name`), no If-Match. A file over the limit or unreadable makes no request. The answer's
+    // `filename` is validated like any reference before it is returned.
+    AttachmentUploadResult upload_attachment(int64_t note_remote_id, const std::string& file_path,
+                                             const std::string& display_name);
+    // HEAD on the same URL with a 3 s timeout: the size if the server announces one (it need not).
+    AttachmentProbeResult probe_attachment(int64_t note_remote_id, const std::string& remote_path);
+
 private:
     Request make_request(const std::string& method, const std::string& url) const;
+    std::string attachment_url(int64_t note_remote_id, const std::string& remote_path) const;
 
     WriteResult write_note(const std::string& method, const std::string& url, const NoteDraft& draft,
                            const std::string& if_match_etag);

@@ -62,4 +62,54 @@ PB_TEST(excerpt_is_limited_to_120_characters_without_breaking_utf8) {
     PB_CHECK_EQ(e.size(), static_cast<size_t>(240));  // 120 characters
 }
 
+namespace {
+// The excerpt of "T\n" + `body` limited to `max` characters.
+std::string excerpt_of(const std::string& body, size_t max) { return make_excerpt("T\n" + body, max); }
+}  // namespace
+
+PB_TEST(excerpt_never_ends_inside_an_emoji_sequence) {
+    const std::string kinds[] = {
+        "\U0001F600",                                                            // single
+        "\u2764\uFE0F",                                                          // variation selector
+        "\U0001F44D\U0001F3FD",                                                  // skin tone
+        "\U0001F468\u200D\U0001F469\u200D\U0001F467",                           // ZWJ family
+        "\U0001F1E9\U0001F1EA",                                                  // flag
+        "1\uFE0F\u20E3",                                                         // keycap
+        "\U0001F3F4\U000E0067\U000E0062\U000E0065\U000E006E\U000E0067\U000E007F",  // tag sequence
+        "e\u0301",                                                               // combining mark
+    };
+    for (const std::string& unit : kinds) {
+        // the unit straddles the limit for every cut position inside it
+        for (size_t before = 0; before < 4; ++before) {
+            const std::string body = std::string(before, 'a') + unit + " tail text";
+            for (size_t max = 1; max < before + 8; ++max) {
+                const std::string e = excerpt_of(body, max);
+                PB_CHECK(valid_utf8(e));
+                // if the excerpt contains the first byte of the unit it must contain the whole unit
+                const size_t at = e.find(unit.substr(0, 1) == "1" ? "1" : unit.substr(0, 4 > unit.size() ? unit.size() : 3));
+                if (at != std::string::npos && at >= before && e.size() > before) {
+                    PB_CHECK(e.compare(before, unit.size(), unit) == 0);
+                }
+            }
+        }
+    }
+}
+
+PB_TEST(excerpt_may_exceed_the_limit_by_one_unit) {
+    const std::string family = "\U0001F468\u200D\U0001F469\u200D\U0001F467";
+    // limit 3: "ab" + the family (5 code points) -> the family is kept whole
+    const std::string e = excerpt_of("ab" + family + "xyz", 3);
+    PB_CHECK_EQ(e, "ab" + family);
+    // the next unit is not started once the limit is reached
+    PB_CHECK_EQ(excerpt_of("abc" + family, 3), std::string("abc"));
+}
+
+PB_TEST(excerpt_of_text_without_emojis_is_unchanged) {
+    PB_CHECK_EQ(excerpt_of("abcdef", 3), std::string("abc"));
+    PB_CHECK_EQ(excerpt_of("a b  c", 4), std::string("a b "));  // collapsed spaces count as before
+    std::string body;
+    for (int i = 0; i < 200; ++i) body += "\u00E4";
+    PB_CHECK_EQ(excerpt_of(body, 120).size(), static_cast<size_t>(240));
+}
+
 PB_TEST_MAIN()

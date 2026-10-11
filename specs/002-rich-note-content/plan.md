@@ -123,8 +123,9 @@ core/src/
 ├── note_store_attachments.cpp   # NEW  attachment operations of NoteStore (note_store.cpp is 1,000+ lines)
 ├── sync_attachments.cpp         # NEW  attachment-aware push used by sync_engine.cpp
 ├── markdown.cpp              # CHG  block parsing (tables, attachment blocks)
-├── markdown_inline.cpp       # NEW  split out of markdown.cpp: links, autolinks, emphasis
+├── markdown_inline.cpp       # NEW  split out of markdown.cpp: links, autolinks, emphasis, attachment references
 ├── markdown_table.cpp        # NEW  table recognition and cell/weight computation
+├── markdown_internal.h, store_sql.h, sync_attachments.h   # NEW  private headers shared by the files above
 ├── curl_transport.cpp        # CHG  curl_mime upload, file sink, size cap, HEAD
 ├── api_client.cpp, note_store.cpp, sync_engine.cpp, title.cpp, types.cpp    # CHG
 bridge/

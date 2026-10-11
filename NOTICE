@@ -10,7 +10,9 @@ https://github.com/jrohde/InkFeed
 Build, launcher and packaging patterns were adapted from InkFeed: the CMake ARM toolchain block
 and manual moc/rcc steps (cmake/sdk.cmake, cmake/qt_manual.cmake), the rotation/devicePixelRatio
 stage and flat button QML (qml/), the InkView glue in app/, the PocketBook launcher script
-(platform/pocketbook/pbnotes.app) and the packaging script (scripts/package-device.sh).
+(platform/pocketbook/pbnotes.app) and the packaging script (scripts/package-device.sh). The way the
+default web browser is started from a link (OpenBook with BROWSER_FOR_AUTH, app/device_bridge.cpp)
+follows InkFeed's browser launch.
 
 Copyright (c) 2026 Joost Rohde
 
@@ -42,3 +44,11 @@ from Mozilla's certificate store. Licensed under the Mozilla Public License 2.0
 SQLite (public domain)
 third_party/sqlite/sqlite3.c and sqlite3.h, the SQLite amalgamation (https://www.sqlite.org/).
 SQLite is in the public domain. Version and checksums: third_party/sqlite/VERSION.
+
+--------------------------------------------------------------------------------
+Noto Emoji (SIL Open Font License 1.1)
+third_party/noto-emoji/NotoEmoji.ttf, the monochrome Noto Emoji font from the Google Fonts
+repository (https://github.com/google/fonts/tree/main/ofl/notoemoji). Copyright 2013 Google LLC.
+Licensed under the SIL Open Font License, Version 1.1; the license text is third_party/noto-emoji/OFL.txt
+and is installed next to the font on the reader (applications/pbnotes-emoji-OFL.txt). Source commit
+and checksum: third_party/noto-emoji/VERSION.

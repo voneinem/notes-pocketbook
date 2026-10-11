@@ -15,6 +15,8 @@
 #   R3 core/ is Qt-free and InkView-free.
 #   R4 No logging call is given a password, user name, note content or title.
 #   R5 No absolute local paths (user home directories, drive letters) in any tracked text file.
+#   R6 No log::text / log::count key that is, starts with or ends with the word url, path, file, name
+#        or address (e.g. "url", "file_name", "link_url") in core/, bridge/ and app/ (spec 002 FR-033: no link addresses, attachment names or file paths in logs).
 set -u
 
 SELF="$(basename "${BASH_SOURCE[0]}")"
@@ -82,6 +84,11 @@ scan() {
                     grep -nE '(log::|qDebug|qWarning|qInfo|std::cerr|fprintf\(stderr)[^;]*(password|passwd|username|\.content|->content|\.title|->title)' "$p" | sed "s#^#R4 $f:#"
                     bad=1
                 fi
+                # R6: log keys that would carry addresses, names or paths
+                if grep -nE 'log::(text|count)[[:space:]]*\([[:space:]]*"([A-Za-z0-9.]+_)?(url|path|file|name|address)(_[A-Za-z0-9_.]+)?"' "$p" >/dev/null 2>&1; then
+                    grep -nE 'log::(text|count)[[:space:]]*\([[:space:]]*"([A-Za-z0-9.]+_)?(url|path|file|name|address)(_[A-Za-z0-9_.]+)?"' "$p" | sed "s#^#R6 $f:#"
+                    bad=1
+                fi
                 ;;
         esac
     done < <(list_files "$root")
@@ -128,6 +135,12 @@ if [ "${1:-}" = "--self-test" ]; then
     violate core/src/a.cpp '#include <inkview.h>' "R3: inkview include in core"
     violate core/src/a.cpp 'log::text("x", account.password);' "R4: password into the log"
     violate core/src/a.cpp 'log::text("x", note.content);' "R4: note content into the log"
+    violate core/src/a.cpp 'log::text("url", link);' "R6: url key in the log"
+    violate core/src/a.cpp 'log::text("file_name", n);' "R6: file_name key in the log"
+    violate core/src/a.cpp 'log::count("path", 1);' "R6: path key in the log"
+    violate core/src/a.cpp 'log::text("address", a);' "R6: address key in the log"
+    printf 'log::text("result", r); log::count("pulled", 3); log::path(p);\n' > "$tmp/core/src/log_ok.cpp"
+    expect pass "result/count keys and log::path are allowed"; rm "$tmp/core/src/log_ok.cpp"
     violate docs/a.md 'see /home/someone/project/file' "R5: Linux home path"
     violate docs/a.md 'see /Users/someone/project/file' "R5: macOS home path"
     violate docs/a.md 'see C:\Users\x\file' "R5: drive-letter path"

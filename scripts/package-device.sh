@@ -11,6 +11,8 @@
 #   applications/pbnotes.bin           the app (ARM ELF)
 #   applications/pbnotes.app           the launcher (shell script)
 #   applications/pbnotes-cacert.pem    bundled CA certificates (used when the device has none)
+#   applications/pbnotes-emoji.ttf     monochrome emoji font (Noto Emoji, SIL OFL 1.1)
+#   applications/pbnotes-emoji-OFL.txt the font's license text
 #   applications/icons/*.bmp           launcher icons
 #   INSTALL.md                         install / registration steps
 #
@@ -26,6 +28,7 @@ OUT_DIR="${3:-dist}"
 for f in "$BIN" \
          "$ROOT/platform/pocketbook/pbnotes.app" \
          "$ROOT/third_party/cacert/cacert.pem" \
+         "$ROOT/third_party/noto-emoji/NotoEmoji.ttf" "$ROOT/third_party/noto-emoji/OFL.txt" \
          "$ROOT/res/icons/pbnotes.bmp" "$ROOT/res/icons/pbnotes_f.bmp" \
          "$ROOT/INSTALL.md"; do
     [ -f "$f" ] || { echo "missing input: $f" >&2; exit 1; }
@@ -42,6 +45,8 @@ mkdir -p "$apps/icons"
 install -m 777 "$BIN"                                   "$apps/pbnotes.bin"
 install -m 777 "$ROOT/platform/pocketbook/pbnotes.app"  "$apps/pbnotes.app"
 install -m 644 "$ROOT/third_party/cacert/cacert.pem"    "$apps/pbnotes-cacert.pem"
+install -m 644 "$ROOT/third_party/noto-emoji/NotoEmoji.ttf" "$apps/pbnotes-emoji.ttf"
+install -m 644 "$ROOT/third_party/noto-emoji/OFL.txt"   "$apps/pbnotes-emoji-OFL.txt"
 install -m 666 "$ROOT/res/icons/pbnotes.bmp"            "$apps/icons/pbnotes.bmp"
 install -m 666 "$ROOT/res/icons/pbnotes_f.bmp"          "$apps/icons/pbnotes_f.bmp"
 install -m 644 "$ROOT/INSTALL.md"                       "$stage/INSTALL.md"

@@ -2,6 +2,8 @@
 // Scripted HttpTransport for contract and integration tests (T016). Records every request
 // including credentials and headers. Accepts any URL scheme.
 
+#include <cstdlib>
+#include <fstream>
 #include <functional>
 #include <string>
 #include <vector>
@@ -31,7 +33,47 @@ public:
     // Failure injection: the n-th request (0-based) fails with a transport error instead.
     void fail_request(size_t index, pbnotes::ErrorClass error) { failures_.push_back({index, error}); }
 
+    // Simulates a full device for the next file downloads (Response::storage_full, nothing written).
+    bool simulate_storage_full = false;
+
     pbnotes::Response perform(const pbnotes::Request& request) override {
+        pbnotes::Response r = perform_scripted(request);
+        apply_file_semantics(request, &r);
+        return r;
+    }
+
+    const std::vector<pbnotes::Request>& requests() const { return requests_; }
+    void clear_requests() { requests_.clear(); }
+    const std::vector<std::string>& mismatches() const { return mismatches_; }
+    bool all_consumed() const { return next_ == queue_.size(); }
+
+private:
+    // What the real transport does with save_body_to / max_body_bytes: the body of a 2xx answer goes into the
+    // file (Response::body stays empty); a Content-Length or a body over the cap stops the transfer.
+    void apply_file_semantics(const pbnotes::Request& request, pbnotes::Response* r) {
+        if (request.save_body_to.empty() || r->status < 200 || r->status >= 300 || r->error != pbnotes::ErrorClass::None) return;
+        if (r->body_too_large || r->storage_full) return;
+        if (request.method == "HEAD") return;
+        const std::string length = pbnotes::header_value(r->headers, "Content-Length");
+        if (request.max_body_bytes > 0) {
+            const long long declared = length.empty() ? -1 : std::atoll(length.c_str());
+            if (declared > request.max_body_bytes || static_cast<long long>(r->body.size()) > request.max_body_bytes) {
+                r->body_too_large = true;
+                r->body.clear();
+                return;
+            }
+        }
+        if (simulate_storage_full) {
+            r->storage_full = true;
+            r->body.clear();
+            return;
+        }
+        std::ofstream f(request.save_body_to, std::ios::binary | std::ios::trunc);
+        f << r->body;
+        r->body.clear();
+    }
+
+    pbnotes::Response perform_scripted(const pbnotes::Request& request) {
         const size_t index = requests_.size();
         requests_.push_back(request);
         for (const auto& f : failures_) {
@@ -58,11 +100,7 @@ public:
         return r;
     }
 
-    const std::vector<pbnotes::Request>& requests() const { return requests_; }
-    void clear_requests() { requests_.clear(); }
-    const std::vector<std::string>& mismatches() const { return mismatches_; }
-    bool all_consumed() const { return next_ == queue_.size(); }
-
+public:
     static pbnotes::Response ok(const std::string& body, pbnotes::Headers headers = {}) {
         pbnotes::Response r;
         r.status = 200;
