@@ -6,6 +6,7 @@
 
 using pbnotes::derive_title;
 using pbnotes::make_excerpt;
+using pbnotes::strip_heading_marker;
 
 namespace {
 // True if s is well-formed UTF-8 (no truncated sequences).
@@ -49,22 +50,22 @@ PB_TEST(title_keeps_multibyte_characters_intact) {
 }
 
 PB_TEST(excerpt_skips_title_and_collapses_whitespace) {
-    PB_CHECK_EQ(make_excerpt("Title\nfirst   second\n\nthird\n"), std::string("first second third"));
+    PB_CHECK_EQ(make_excerpt("Title\nfirst   second\n\nthird\n", "Title"), std::string("first second third"));
 }
 
-PB_TEST(excerpt_of_single_line_note_is_empty) { PB_CHECK_EQ(make_excerpt("Only a title"), std::string()); }
+PB_TEST(excerpt_of_single_line_note_is_empty) { PB_CHECK_EQ(make_excerpt("Only a title", "Only a title"), std::string()); }
 
 PB_TEST(excerpt_is_limited_to_120_characters_without_breaking_utf8) {
     std::string body;
     for (int i = 0; i < 200; ++i) body += "ä";  // 2 bytes each
-    const std::string e = make_excerpt("Title\n" + body);
+    const std::string e = make_excerpt("Title\n" + body, "Title");
     PB_CHECK(valid_utf8(e));
     PB_CHECK_EQ(e.size(), static_cast<size_t>(240));  // 120 characters
 }
 
 namespace {
 // The excerpt of "T\n" + `body` limited to `max` characters.
-std::string excerpt_of(const std::string& body, size_t max) { return make_excerpt("T\n" + body, max); }
+std::string excerpt_of(const std::string& body, size_t max) { return make_excerpt("T\n" + body, "T", max); }
 }  // namespace
 
 PB_TEST(excerpt_never_ends_inside_an_emoji_sequence) {
@@ -110,6 +111,45 @@ PB_TEST(excerpt_of_text_without_emojis_is_unchanged) {
     std::string body;
     for (int i = 0; i < 200; ++i) body += "\u00E4";
     PB_CHECK_EQ(excerpt_of(body, 120).size(), static_cast<size_t>(240));
+}
+
+// ---- spec 004: heading marker and the title-aware preview ------------------------------------------------------
+
+PB_TEST(strip_heading_marker_removes_one_to_six_hashes_followed_by_space) {
+    PB_CHECK_EQ(strip_heading_marker("## Plan"), std::string("Plan"));
+    PB_CHECK_EQ(strip_heading_marker("# x"), std::string("x"));
+    PB_CHECK_EQ(strip_heading_marker("###### six"), std::string("six"));
+    PB_CHECK_EQ(strip_heading_marker("##\tTabbed"), std::string("Tabbed"));
+    PB_CHECK_EQ(strip_heading_marker("  ## Plan  "), std::string("Plan"));
+    PB_CHECK_EQ(strip_heading_marker("## Größe 日本語"), std::string("Größe 日本語"));
+}
+
+PB_TEST(strip_heading_marker_leaves_everything_else_trimmed_but_unchanged) {
+    PB_CHECK_EQ(strip_heading_marker("####### seven"), std::string("####### seven"));
+    PB_CHECK_EQ(strip_heading_marker("#hashtag"), std::string("#hashtag"));
+    PB_CHECK_EQ(strip_heading_marker("###"), std::string("###"));
+    PB_CHECK_EQ(strip_heading_marker("  plain  "), std::string("plain"));
+    PB_CHECK_EQ(strip_heading_marker(""), std::string());
+}
+
+PB_TEST(excerpt_drops_a_first_line_that_repeats_the_title) {
+    PB_CHECK_EQ(make_excerpt("Groceries\nmilk eggs", "Groceries"), std::string("milk eggs"));
+    PB_CHECK_EQ(make_excerpt("\n\n## Groceries\nmilk", "Groceries"), std::string("milk"));  // heading marker ignored
+    PB_CHECK_EQ(make_excerpt("Groceries  \nmilk", "Groceries"), std::string("milk"));
+}
+
+PB_TEST(excerpt_keeps_a_first_line_that_is_not_the_title) {
+    PB_CHECK_EQ(make_excerpt("Buy milk\nand eggs", "Groceries"), std::string("Buy milk and eggs"));
+    PB_CHECK_EQ(make_excerpt("groceries\nmilk", "Groceries"), std::string("groceries milk"));  // byte-exact
+    PB_CHECK_EQ(make_excerpt("Groceries list\nmilk", "Groceries"), std::string("Groceries list milk"));
+}
+
+PB_TEST(excerpt_with_an_empty_title_drops_nothing) {
+    PB_CHECK_EQ(make_excerpt("first\nsecond", ""), std::string("first second"));
+}
+
+PB_TEST(excerpt_of_a_text_that_is_only_the_title_is_empty) {
+    PB_CHECK_EQ(make_excerpt("# Groceries\n\n", "Groceries"), std::string());
 }
 
 PB_TEST_MAIN()

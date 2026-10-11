@@ -24,7 +24,7 @@ Behavior reference: `docs/notes-android-features.md` §5-6 and the public Notes 
 | List | `GET notes?pruneBefore=<s>` + `If-None-Match: <collection etag>` | 200 + JSON array (unchanged notes in pruned form with only `id`); response headers `ETag`, `Last-Modified`, `X-Notes-API-Versions` | 304 → nothing changed; 503 → maintenance; 401/403 → rejected |
 | List (first pull) | `GET notes` (add `chunkSize=100` / `chunkCursor` if supported, **VERIFY**) | 200 + array | as above |
 | Get one | `GET notes/{id}` (+ `If-None-Match: <etag>` for the delete re-check) | 200 + note; 304 unchanged | 404 → note gone |
-| Create | `POST notes` body `{content, category, favorite, modified}` | 200 + note with `id`, `etag`, `title`, `modified` | 4xx/5xx → note stays `edited` |
+| Create | `POST notes` body `{title, content, category, favorite, modified}` (title added by feature 004, see `specs/004-title-category-picker/contracts/notes-api-title.md`) | 200 + note with `id`, `etag`, `title`, `modified` | 4xx/5xx → note stays `edited` |
 | Update | `PUT notes/{id}` + `If-Match: "<etag>"`, body as create | 200 + note | **412** → conflict (client fetches server version, see sync spec); **404** → server deleted it: client re-creates with POST; other → stay `edited` |
 | Delete | First `GET notes/{id}` with `If-None-Match: <stored etag>`; only on `304` then `DELETE notes/{id}`. If the server is verified to return 412 for a stale `If-Match` on `DELETE` (**VERIFY**), send `DELETE` with `If-Match` and skip the `GET` | 200 | GET `200` (changed) → conflict, no `DELETE` sent, server version restored; GET/DELETE `404` → treated as already gone; `DELETE` 412 → conflict |
 
@@ -33,7 +33,7 @@ server sends them) and sends it back unchanged in `If-Match` / `If-None-Match`.
 
 ## Client expectations (tested with fixtures)
 
-1. Title is never sent; the response's title (the note's file name) is stored and displayed for notes in sync; notes with local changes show the first line of their text until the push is confirmed.
+1. The title the user entered is sent with every create and update (feature 004; before it, the title was never sent). The response's title (the note's file name) is stored and displayed for notes in sync; notes with local changes show the title the user entered until the push is confirmed.
 2. A `412` on `PUT` triggers exactly: one `GET notes/{id}`, replacement of the original with the
    server version, creation of one conflict copy, one `POST` for the copy.
 3. `304` on list leaves all notes untouched and stores nothing new except the sync time.

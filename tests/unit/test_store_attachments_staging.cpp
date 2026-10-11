@@ -30,7 +30,7 @@ struct Env {
     }
     // A note whose text carries the token of `a`.
     int64_t note_with(const Attachment& a, const std::string& before = "Title\n") {
-        auto r = store->create_local(before + make_token(a.id, a.display_name) + "\nafter", "", false, 200);
+        auto r = store->create_local("Explicit title", before + make_token(a.id, a.display_name) + "\nafter", "", false, 200);
         PB_CHECK(r.error == EditError::None);
         return r.local_id;
     }
@@ -97,7 +97,7 @@ PB_TEST(creating_a_note_binds_its_staged_attachments_and_makes_them_pending) {
     auto a = e.stage("a.png");
     auto b = e.stage("b.pdf");
     auto unused = e.stage("c.png");   // no token in the text
-    auto r = e.store->create_local("Title\n" + make_token(a.id, "a.png") + "\n" + make_token(b.id, "b.pdf"), "", false, 100);
+    auto r = e.store->create_local(pbnotes::derive_title("Title\n" + make_token(a.id, "a.png") + "\n" + make_token(b.id, "b.pdf")), "Title\n" + make_token(a.id, "a.png") + "\n" + make_token(b.id, "b.pdf"), "", false, 100);
     PB_CHECK(r.error == EditError::None);
     for (int64_t id : {a.id, b.id}) {
         auto row = e.store->get_attachment(id);
@@ -113,7 +113,7 @@ PB_TEST(saving_a_note_binds_the_staged_attachments_named_by_its_tokens) {
     e.store->apply_remote({server_note(1, "Synced note")});
     const int64_t note = e.store->get_by_remote_id(1)->local_id;
     auto a = e.stage();
-    PB_CHECK(e.store->save_local(note, "Synced note\n" + make_token(a.id, "photo.png"), "", false, 500).error == EditError::None);
+    PB_CHECK(e.store->save_local(note, pbnotes::derive_title("Synced note\n" + make_token(a.id, "photo.png")), "Synced note\n" + make_token(a.id, "photo.png"), "", false, 500).error == EditError::None);
     auto row = e.store->get_attachment(a.id);
     PB_CHECK(row->state == AttachmentState::Pending);
     PB_CHECK_EQ(row->note_local_id.value_or(0), note);
@@ -127,7 +127,7 @@ PB_TEST(a_save_that_fails_leaves_the_note_and_the_staged_rows_unchanged) {
         const int64_t note = e.store->get_by_remote_id(1)->local_id;
         auto a = e.stage();
         e.store->test_fail_nth_write(n);
-        auto r = e.store->save_local(note, "Original\n" + make_token(a.id, "photo.png"), "", false, 500);
+        auto r = e.store->save_local(note, pbnotes::derive_title("Original\n" + make_token(a.id, "photo.png")), "Original\n" + make_token(a.id, "photo.png"), "", false, 500);
         e.store->test_fail_nth_write(0);
         if (r.error == EditError::None) continue;   // this injection point is past the save's last write
         PB_CHECK_EQ(e.store->get(note)->content, std::string("Original"));
@@ -143,7 +143,7 @@ PB_TEST(a_create_that_fails_leaves_no_note_and_the_row_staged) {
         Env e;
         auto a = e.stage();
         e.store->test_fail_nth_write(n);
-        auto r = e.store->create_local("T\n" + make_token(a.id, "photo.png"), "", false, 500);
+        auto r = e.store->create_local(pbnotes::derive_title("T\n" + make_token(a.id, "photo.png")), "T\n" + make_token(a.id, "photo.png"), "", false, 500);
         e.store->test_fail_nth_write(0);
         if (r.error == EditError::None) continue;
         PB_CHECK(e.store->list().empty());
@@ -156,7 +156,7 @@ PB_TEST(unknown_tokens_and_tokens_of_other_notes_are_ignored) {
     auto a = e.stage();
     const int64_t first = e.note_with(a);
     // the same token pasted into another note: it stays literal text and does not steal the row
-    auto r = e.store->create_local("Other\n" + make_token(a.id, "photo.png") + "\n" + make_token(9999, "ghost.png"), "", false, 300);
+    auto r = e.store->create_local(pbnotes::derive_title("Other\n" + make_token(a.id, "photo.png") + "\n" + make_token(9999, "ghost.png")), "Other\n" + make_token(a.id, "photo.png") + "\n" + make_token(9999, "ghost.png"), "", false, 300);
     PB_CHECK(r.error == EditError::None);
     PB_CHECK_EQ(e.store->get_attachment(a.id)->note_local_id.value_or(0), first);
     PB_CHECK(!e.store->get_attachment(9999).has_value());
@@ -166,7 +166,7 @@ PB_TEST(re_saving_a_note_with_its_pending_attachment_keeps_it_pending) {
     Env e;
     auto a = e.stage();
     const int64_t note = e.note_with(a);
-    PB_CHECK(e.store->save_local(note, "Title\n" + make_token(a.id, "photo.png") + "\nchanged text", "", false, 400).error == EditError::None);
+    PB_CHECK(e.store->save_local(note, pbnotes::derive_title("Title\n" + make_token(a.id, "photo.png") + "\nchanged text"), "Title\n" + make_token(a.id, "photo.png") + "\nchanged text", "", false, 400).error == EditError::None);
     PB_CHECK(e.store->get_attachment(a.id)->state == AttachmentState::Pending);
     PB_CHECK_EQ(e.store->get_attachment(a.id)->note_local_id.value_or(0), note);
 }
@@ -230,13 +230,34 @@ PB_TEST(record_uploaded_stores_the_path_rewrites_the_token_and_changes_nothing_e
 
     const Note after = *e.store->get(note);
     PB_CHECK_EQ(after.content, "Title\n![photo one.png](.attachments.12/photo%20one.png)\nafter");
-    PB_CHECK_EQ(after.title, derive_title(after.content));
-    PB_CHECK_EQ(after.excerpt, make_excerpt(after.content));
+    PB_CHECK_EQ(after.title, std::string("Explicit title"));   // the upload rewrites the text, never the title (spec 004)
+    PB_CHECK_EQ(after.title, before.title);
+    PB_CHECK_EQ(after.excerpt, make_excerpt(after.content, after.title));
     PB_CHECK_EQ(after.modified, before.modified);
     PB_CHECK(after.status == before.status);
     PB_CHECK_EQ(after.etag.value_or("-"), before.etag.value_or("-"));
     PB_CHECK_EQ(after.category, before.category);
     PB_CHECK(e.store->pending_attachments(note).empty());
+}
+
+PB_TEST(record_uploaded_keeps_the_title_even_when_the_token_is_the_first_line) {
+    Env e;
+    auto a = e.stage("photo.png", 10);
+    const int64_t note = e.note_with(a, "");   // the text starts with the token line
+    PB_CHECK(e.store->record_uploaded(a.id, ".attachments.12/photo.png", 10));
+    const Note after = *e.store->get(note);
+    PB_CHECK_EQ(after.title, std::string("Explicit title"));
+    PB_CHECK(after.content.find("pbatt:") == std::string::npos);
+    PB_CHECK_EQ(after.excerpt, make_excerpt(after.content, "Explicit title"));
+    PB_CHECK(after.excerpt.find("photo.png") != std::string::npos);   // the first line is part of the preview now
+}
+
+PB_TEST(drop_dead_tokens_keeps_the_title) {
+    Env e;
+    auto a = e.stage();
+    const int64_t note = e.note_with(a);
+    PB_CHECK(e.store->drop_staged(a.id) == false);   // bound to the note, cannot be dropped
+    PB_CHECK(e.store->get(note)->title == "Explicit title");
 }
 
 PB_TEST(record_uploaded_is_idempotent) {
@@ -297,7 +318,7 @@ struct Conflict {
         auto p = e.stage("new.png");
         pending_id = p.id;
         local_text = "Plan\nmy edit\n![d](.attachments.7/d.png)\n" + make_token(p.id, "new.png") + "\n![r](.attachments.7/remote.pdf)\n";
-        PB_CHECK(e.store->save_local(note, local_text, "", false, 500).error == EditError::None);
+        PB_CHECK(e.store->save_local(note, pbnotes::derive_title(local_text), local_text, "", false, 500).error == EditError::None);
     }
     ApiNote server() const { ApiNote s = server_note(7, "Plan\nthe server's edit\n"); s.etag = "v2"; s.modified = 900; return s; }
 };
@@ -379,7 +400,7 @@ PB_TEST(a_conflict_without_attachments_still_works_as_before) {
     Env e;
     e.store->apply_remote({server_note(7, "Plan\nold\n")});
     const int64_t note = e.store->get_by_remote_id(7)->local_id;
-    PB_CHECK(e.store->save_local(note, "Plan\nmine\n", "", false, 500).error == EditError::None);
+    PB_CHECK(e.store->save_local(note, pbnotes::derive_title("Plan\nmine\n"), "Plan\nmine\n", "", false, 500).error == EditError::None);
     ApiNote s = server_note(7, "Plan\ntheirs\n");
     s.etag = "v2";
     auto res = e.store->resolve_conflict(note, s, kDay);

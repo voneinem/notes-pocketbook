@@ -18,6 +18,7 @@ enum class Create { Ok, Abort, Failed };
 // note stays pending because the stored text still has the tokens.
 Create create_without_tokens(NoteStore& store, ApiClient& api, AttachmentPrep* prep) {
     NoteDraft draft;
+    draft.title = prep->note.title;
     draft.content = strip_tokens(prep->note.content, find_tokens(prep->note.content));
     draft.category = prep->note.category;
     draft.favorite = prep->note.favorite;
@@ -29,7 +30,7 @@ Create create_without_tokens(NoteStore& store, ApiClient& api, AttachmentPrep* p
         return Create::Abort;
     }
     if (w.error != ErrorClass::None || !w.note) return Create::Failed;
-    if (!store.confirm_push(prep->note.local_id, *w.note, {draft.content, draft.category, draft.favorite})) return Create::Failed;
+    if (!store.confirm_push(prep->note.local_id, *w.note, {draft.title, draft.content, draft.category, draft.favorite})) return Create::Failed;
     auto fresh = store.get(prep->note.local_id);
     if (!fresh) return Create::Failed;
     prep->note = *fresh;

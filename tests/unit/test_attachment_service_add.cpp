@@ -12,6 +12,7 @@
 #include "pbnotes/attachment_ref.h"
 #include "pbnotes/attachment_service.h"
 #include "pbnotes/note_store.h"
+#include "pbnotes/title.h"
 #include "test_support.h"
 #include "tmp_dir.h"
 
@@ -206,7 +207,7 @@ PB_TEST(a_hostile_file_name_is_sanitized_and_never_used_as_a_path) {
 PB_TEST(the_token_of_an_added_file_survives_in_note_text_and_binds_on_save) {
     Env e;
     auto r = e.service->add(e.make("a.png", "DATA"));
-    auto note = e.store->create_local("Title\n" + r.token + "\n", "", false, 100);
+    auto note = e.store->create_local(pbnotes::derive_title("Title\n" + r.token + "\n"), "Title\n" + r.token + "\n", "", false, 100);
     PB_CHECK(note.error == EditError::None);
     PB_CHECK(e.store->get_attachment(r.id)->state == AttachmentState::Pending);
 }

@@ -5,6 +5,7 @@
 #include <vector>
 
 #include "pbnotes/note_store.h"
+#include "pbnotes/title.h"
 #include "test_support.h"
 #include "tmp_dir.h"
 
@@ -25,9 +26,9 @@ std::vector<std::string> titles(const std::vector<pbnotes::NoteSummary>& v) {
 PB_TEST(matches_title_and_content_ignoring_case) {
     pbtest::TmpDir d;
     auto store = NoteStore::open(d.file("db"));
-    store->create_local("Shopping list\nmilk and bread", "", false, 1);
-    store->create_local("Meeting\nTalk about the BUDGET", "", false, 2);
-    store->create_local("Ideas\nnothing relevant", "", false, 3);
+    store->create_local(pbnotes::derive_title("Shopping list\nmilk and bread"), "Shopping list\nmilk and bread", "", false, 1);
+    store->create_local(pbnotes::derive_title("Meeting\nTalk about the BUDGET"), "Meeting\nTalk about the BUDGET", "", false, 2);
+    store->create_local(pbnotes::derive_title("Ideas\nnothing relevant"), "Ideas\nnothing relevant", "", false, 3);
     PB_CHECK(titles(store->list(search("shopping"))) == (std::vector<std::string>{"Shopping list"}));
     PB_CHECK(titles(store->list(search("budget"))) == (std::vector<std::string>{"Meeting"}));   // only in the body
     PB_CHECK(titles(store->list(search("BREAD"))) == (std::vector<std::string>{"Shopping list"}));
@@ -37,7 +38,7 @@ PB_TEST(matches_title_and_content_ignoring_case) {
 PB_TEST(substrings_match_inside_words) {
     pbtest::TmpDir d;
     auto store = NoteStore::open(d.file("db"));
-    store->create_local("Banana bread\nrecipe", "", false, 1);
+    store->create_local(pbnotes::derive_title("Banana bread\nrecipe"), "Banana bread\nrecipe", "", false, 1);
     PB_CHECK_EQ(store->list(search("nan")).size(), static_cast<size_t>(1));
     PB_CHECK_EQ(store->list(search("ana b")).size(), static_cast<size_t>(1));  // across a space
 }
@@ -45,9 +46,9 @@ PB_TEST(substrings_match_inside_words) {
 PB_TEST(non_ascii_letters_fold_case) {
     pbtest::TmpDir d;
     auto store = NoteStore::open(d.file("db"));
-    store->create_local("Äpfel und Birnen\nÖl", "", false, 1);
-    store->create_local("ΑΘΗΝΑ\nΕλλάδα", "", false, 2);
-    store->create_local("МОСКВА\nстолица", "", false, 3);
+    store->create_local(pbnotes::derive_title("Äpfel und Birnen\nÖl"), "Äpfel und Birnen\nÖl", "", false, 1);
+    store->create_local(pbnotes::derive_title("ΑΘΗΝΑ\nΕλλάδα"), "ΑΘΗΝΑ\nΕλλάδα", "", false, 2);
+    store->create_local(pbnotes::derive_title("МОСКВА\nстолица"), "МОСКВА\nстолица", "", false, 3);
     PB_CHECK_EQ(store->list(search("äpfel")).size(), static_cast<size_t>(1));
     PB_CHECK_EQ(store->list(search("ÄPFEL")).size(), static_cast<size_t>(1));
     PB_CHECK_EQ(store->list(search("öl")).size(), static_cast<size_t>(1));
@@ -59,8 +60,8 @@ PB_TEST(non_ascii_letters_fold_case) {
 PB_TEST(special_characters_are_literal) {
     pbtest::TmpDir d;
     auto store = NoteStore::open(d.file("db"));
-    store->create_local("Sale\n100% off_today", "", false, 1);
-    store->create_local("Other\nplain text", "", false, 2);
+    store->create_local(pbnotes::derive_title("Sale\n100% off_today"), "Sale\n100% off_today", "", false, 1);
+    store->create_local(pbnotes::derive_title("Other\nplain text"), "Other\nplain text", "", false, 2);
     PB_CHECK_EQ(store->list(search("100%")).size(), static_cast<size_t>(1));
     PB_CHECK_EQ(store->list(search("%")).size(), static_cast<size_t>(1));   // not a wildcard
     PB_CHECK_EQ(store->list(search("_")).size(), static_cast<size_t>(1));
@@ -71,8 +72,8 @@ PB_TEST(special_characters_are_literal) {
 PB_TEST(empty_or_blank_search_means_no_filter) {
     pbtest::TmpDir d;
     auto store = NoteStore::open(d.file("db"));
-    store->create_local("A\nx", "", false, 1);
-    store->create_local("B\ny", "", false, 2);
+    store->create_local(pbnotes::derive_title("A\nx"), "A\nx", "", false, 1);
+    store->create_local(pbnotes::derive_title("B\ny"), "B\ny", "", false, 2);
     PB_CHECK_EQ(store->list(search("")).size(), static_cast<size_t>(2));
     PB_CHECK_EQ(store->list(search("   ")).size(), static_cast<size_t>(2));
 }
@@ -80,10 +81,10 @@ PB_TEST(empty_or_blank_search_means_no_filter) {
 PB_TEST(search_combines_with_views_and_sorting) {
     pbtest::TmpDir d;
     auto store = NoteStore::open(d.file("db"));
-    store->create_local("Zeta recipe\nsoup", "Food", true, 1);
-    store->create_local("Alpha recipe\nsalad", "Food", false, 2);
-    store->create_local("Beta recipe\ncake", "Other", true, 3);
-    store->create_local("Gamma\nno match", "Food", true, 4);
+    store->create_local(pbnotes::derive_title("Zeta recipe\nsoup"), "Zeta recipe\nsoup", "Food", true, 1);
+    store->create_local(pbnotes::derive_title("Alpha recipe\nsalad"), "Alpha recipe\nsalad", "Food", false, 2);
+    store->create_local(pbnotes::derive_title("Beta recipe\ncake"), "Beta recipe\ncake", "Other", true, 3);
+    store->create_local(pbnotes::derive_title("Gamma\nno match"), "Gamma\nno match", "Food", true, 4);
     PB_CHECK(titles(store->list(search("recipe", "category:Food", "title"))) ==
              (std::vector<std::string>{"Alpha recipe", "Zeta recipe"}));
     PB_CHECK(titles(store->list(search("recipe", "favorites", "modified"))) ==

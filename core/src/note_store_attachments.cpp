@@ -340,13 +340,14 @@ std::vector<Attachment> NoteStore::pending_attachments(int64_t note_local_id) co
 
 bool NoteStore::drop_dead_tokens(int64_t note_local_id) {
     std::lock_guard<std::mutex> lock(mutex_);
-    std::string content;
+    std::string content, title;
     {
-        Stmt cur(db_, "SELECT content FROM notes WHERE local_id=?1");
+        Stmt cur(db_, "SELECT content,title FROM notes WHERE local_id=?1");
         if (!cur.ok()) return false;
         cur.bind_int64(1, note_local_id);
         if (cur.step() != SQLITE_ROW) return false;
         content = cur.text(0);
+        title = cur.text(1);
     }
     const std::vector<int64_t> tokens = find_tokens(content);
     if (tokens.empty()) return true;
@@ -362,12 +363,11 @@ bool NoteStore::drop_dead_tokens(int64_t note_local_id) {
         if (!alive.count(id)) dead.push_back(id);
     if (dead.empty()) return true;
     const std::string updated = strip_tokens(content, dead);
-    Stmt up(db_, "UPDATE notes SET content=?1, title=?2, excerpt=?3 WHERE local_id=?4");
+    Stmt up(db_, "UPDATE notes SET content=?1, excerpt=?2 WHERE local_id=?3");
     if (!up.ok()) return false;
     up.bind_text(1, updated);
-    up.bind_text(2, derive_title(updated));
-    up.bind_text(3, make_excerpt(updated));
-    up.bind_int64(4, note_local_id);
+    up.bind_text(2, make_excerpt(updated, title));
+    up.bind_int64(3, note_local_id);
     return up.step() == SQLITE_DONE;
 }
 
@@ -403,19 +403,19 @@ bool NoteStore::record_uploaded(int64_t id, const std::string& remote_path, int6
         if (up.step() != SQLITE_DONE) return rollback();
     }
     {
-        Stmt cur(db_, "SELECT content FROM notes WHERE local_id=?1");
+        Stmt cur(db_, "SELECT content,title FROM notes WHERE local_id=?1");
         if (!cur.ok()) return rollback();
         cur.bind_int64(1, *row.note_local_id);
         if (cur.step() != SQLITE_ROW) return rollback();
         const std::string content = cur.text(0);
+        const std::string title = cur.text(1);
         const std::string updated = replace_token(content, id, remote_path);
         if (updated != content) {
-            Stmt up(db_, "UPDATE notes SET content=?1, title=?2, excerpt=?3 WHERE local_id=?4");
+            Stmt up(db_, "UPDATE notes SET content=?1, excerpt=?2 WHERE local_id=?3");
             if (!up.ok()) return rollback();
             up.bind_text(1, updated);
-            up.bind_text(2, derive_title(updated));
-            up.bind_text(3, make_excerpt(updated));
-            up.bind_int64(4, *row.note_local_id);
+            up.bind_text(2, make_excerpt(updated, title));
+            up.bind_int64(3, *row.note_local_id);
             if (up.step() != SQLITE_DONE) return rollback();
         }
     }
@@ -472,12 +472,11 @@ bool NoteStore::copy_attachments_for_conflict_locked(int64_t original, int64_t c
     const std::string content = cur.text(0);
     const std::string updated = tokenize_attachment_refs(content, token_for_path);
     if (updated == content) return true;
-    Stmt up(db_, "UPDATE notes SET content=?1, title=?2, excerpt=?3 WHERE local_id=?4");
+    Stmt up(db_, "UPDATE notes SET content=?1, excerpt=?2 WHERE local_id=?3");
     if (!up.ok()) return false;
     up.bind_text(1, updated);
-    up.bind_text(2, derive_title(updated));
-    up.bind_text(3, make_excerpt(updated));
-    up.bind_int64(4, copy);
+    up.bind_text(2, make_excerpt(updated, local.title));   // the copy's title carries the marker; the preview follows the original
+    up.bind_int64(3, copy);
     return up.step() == SQLITE_DONE;
 }
 

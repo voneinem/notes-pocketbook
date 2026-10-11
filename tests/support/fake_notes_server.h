@@ -6,6 +6,7 @@
 #include <cstdio>
 #include <ctime>
 #include <fstream>
+#include <functional>
 #include <map>
 #include <string>
 #include <vector>
@@ -33,6 +34,9 @@ public:
     bool maintenance = false;
     bool escape_non_ascii = false;    // answer with \uXXXX escapes (surrogate pairs) instead of raw UTF-8
     std::vector<std::string> log;     // "METHOD /path" in arrival order
+    std::vector<std::string> write_bodies;   // the JSON body of every POST/PUT of a note, in arrival order
+    // Optional: what the real server may do to an explicit title (make it unique, replace characters).
+    std::function<std::string(const std::string&)> adjust_title;
     // Notes API versions the server announces (the X-Notes-API-Versions header and the capabilities answer).
     std::string api_versions_header = "1.0, 1.3";
 
@@ -101,6 +105,14 @@ public:
         return status(405);
     }
 
+    // Simulates a rename made elsewhere (web UI, another device).
+    void rename_on_server(int64_t id, const std::string& title) {
+        Note& n = notes.at(id);
+        n.title = title;
+        n.etag = "s" + std::to_string(++counter_);
+        n.modified = ++clock;
+        bump();
+    }
     // Simulates an edit made elsewhere (web UI, another device).
     void edit_on_server(int64_t id, const std::string& content) {
         Note& n = notes.at(id);
@@ -221,6 +233,8 @@ private:
     void apply_body(Note& n, const pbnotes::Request& req) {
         auto doc = pbnotes::json::parse(req.body);
         if (!doc) return;
+        write_bodies.push_back(req.body);
+        if (auto v = doc->get_string("title")) n.title = adjust_title ? adjust_title(*v) : *v;
         if (auto v = doc->get_string("content")) n.content = *v;
         if (auto v = doc->get_string("category")) n.category = *v;
         if (auto v = doc->get_bool("favorite")) n.favorite = *v;

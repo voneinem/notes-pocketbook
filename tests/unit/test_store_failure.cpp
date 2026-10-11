@@ -3,6 +3,7 @@
 #include <string>
 
 #include "pbnotes/note_store.h"
+#include "pbnotes/title.h"
 #include "test_support.h"
 #include "tmp_dir.h"
 
@@ -13,13 +14,13 @@ using pbnotes::NoteStore;
 PB_TEST(a_failed_save_keeps_the_previous_version_and_reports_the_error) {
     pbtest::TmpDir d;
     auto store = NoteStore::open(d.file("db"));
-    auto id = store->create_local("Precious\nOriginal body", "Work", true, 1000).local_id;
+    auto id = store->create_local(pbnotes::derive_title("Precious\nOriginal body"), "Precious\nOriginal body", "Work", true, 1000).local_id;
     // Simulate a full disk: no more pages may be added to the database.
     const std::string pages = store->pragma("page_count");
     PB_CHECK(store->debug_exec("PRAGMA max_page_count=" + pages));
 
     const std::string huge(2 * 1024 * 1024, 'x');
-    auto r = store->save_local(id, "Precious\n" + huge, "Work", true, 2000);
+    auto r = store->save_local(id, pbnotes::derive_title("Precious\n" + huge), "Precious\n" + huge, "Work", true, 2000);
     PB_CHECK(r.error == EditError::StorageError);
 
     auto n = store->get(id);
@@ -32,9 +33,9 @@ PB_TEST(a_failed_save_keeps_the_previous_version_and_reports_the_error) {
 PB_TEST(a_failed_create_stores_nothing) {
     pbtest::TmpDir d;
     auto store = NoteStore::open(d.file("db"));
-    PB_CHECK(store->create_local("First", "", false, 1000).error == EditError::None);
+    PB_CHECK(store->create_local(pbnotes::derive_title("First"), "First", "", false, 1000).error == EditError::None);
     PB_CHECK(store->debug_exec("PRAGMA max_page_count=" + store->pragma("page_count")));
-    auto r = store->create_local("Second\n" + std::string(2 * 1024 * 1024, 'y'), "", false, 1100);
+    auto r = store->create_local(pbnotes::derive_title("Second\n" + std::string(2 * 1024 * 1024, 'y')), "Second\n" + std::string(2 * 1024 * 1024, 'y'), "", false, 1100);
     PB_CHECK(r.error == EditError::StorageError);
     PB_CHECK_EQ(store->list().size(), static_cast<size_t>(1));
 }

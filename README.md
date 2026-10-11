@@ -5,7 +5,8 @@ server. Read your notes on e-ink, also offline; write and edit with the on-scree
 when you are on Wi-Fi.
 
 > **Status: MVP complete and tested on an InkPad One; rich note content (links, tables, emojis,
-> attachments) and the About box are implemented and tested on the host, their device checks are still open.** Early
+> attachments), the About box and the explicit title with a category picker are implemented and tested on the host,
+> their device checks are still open.** Early
 > software; it works for the author.
 >
 > - **Works on the device (MVP):** setup with a connection test, note list with views, sorting and
@@ -88,6 +89,21 @@ it and the license texts it names as `applications/pbnotes-licenses/`. **To add 
 to the manifest and a section to [NOTICE](NOTICE) (its heading starts with the component's name); the test
 `test_license_consistency` fails the build when a vendored directory, a CMake dependency, a `NOTICE` section
 or a license file does not match the manifest.
+
+### Explicit title and category picker
+
+The editor has a separate **Title** field. The title is what you type there: it is never taken from the
+first line of the text, editing the text never changes it, and it is sent to the server with the note (the
+server may adjust it, for example to make it unique, and the reader then shows the server's title). A note
+cannot be saved without a title. The **Category** control opens a list with *No category*, *New category…*
+and every category already in use; choosing one needs no typing. *New category…* asks for a name once and
+offers it to all notes as soon as a note carrying it is saved. Details: [spec.md](specs/004-title-category-picker/spec.md),
+[quickstart](specs/004-title-category-picker/quickstart.md).
+
+- **Upgrade is one way (again).** The first start of this version upgrades the local database to schema 3
+  (a backup is made and removed after the check): notes you edited but had not synced keep the title the
+  list showed, and the list previews are recomputed. No note is renamed or recategorized by the upgrade.
+  An older build of the app refuses an upgraded database.
 
 ## Security notes
 

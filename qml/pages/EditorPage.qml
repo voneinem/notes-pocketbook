@@ -4,33 +4,43 @@ import ".."
 
 // Plain-text editor for one note (noteId <= 0 creates a new one). Nothing is saved automatically:
 // "Save" writes the note (offline, it waits for the next sync); leaving with unsaved changes asks first.
-// The category is a single line above the text; the first line of the text is the note's title.
+// The title and the category are single lines above the text. The title is what the reader types in its own
+// field; it is never taken from the text. The category is chosen from a list (existing categories, none).
 Item {
     id: page
     property int noteId: -1
+    property string startTitle: ""
     property string startText: ""
     property string startCategory: ""
+    property string category: ""
     property bool startFavorite: false
     property bool favorite: false
     property string message: ""
 
-    readonly property bool dirty: area.text !== startText || categoryField.text !== startCategory || favorite !== startFavorite
+    readonly property bool dirty: titleField.text !== startTitle || area.text !== startText
+                                  || category !== startCategory || favorite !== startFavorite
     readonly property real keyboardHeight: Qt.inputMethod.visible ? Qt.inputMethod.keyboardRectangle.height * Screen.devicePixelRatio : 0
 
     Component.onCompleted: {
         if (noteId > 0) {
             var n = bridge.loadForEdit(noteId)
             if (n.text !== undefined) {
+                startTitle = n.title
                 startText = n.text
                 startCategory = n.category
                 startFavorite = n.favorite
             }
         }
+        titleField.text = startTitle
         area.text = startText
-        categoryField.text = startCategory
+        category = startCategory
         favorite = startFavorite
-        area.forceActiveFocus()
-        area.cursorPosition = area.length
+        if (noteId > 0) {
+            area.forceActiveFocus()
+            area.cursorPosition = area.length
+        } else {
+            titleField.forceActiveFocus()   // a new note starts with its title
+        }
         Qt.inputMethod.show()
     }
 
@@ -69,8 +79,31 @@ Item {
     }
     function save() {
         page.message = ""
-        var id = bridge.saveNote(noteId, area.text, categoryField.text, favorite)
+        var id = bridge.saveNote(noteId, titleField.text, area.text, category, favorite)
         if (id > 0) leave()
+    }
+    // ---- category: one tap in a list; no typing for an existing category ----
+    function openCategoryPicker() {
+        page.message = ""
+        Qt.inputMethod.hide()
+        categoryDialog.choices = bridge.categoryChoices(page.category)
+        categoryDialog.current = page.category === "" ? "none" : "c:" + page.category
+        categoryDialog.open()
+    }
+    function categoryChosen(value) {
+        if (value === "none") page.category = ""
+        else if (value.indexOf("c:") === 0) page.category = value.substring(2)
+        else if (value === "new") { newCategoryDialog.open(""); return }
+        area.forceActiveFocus()
+    }
+    // A typed name is judged by the core; a valid one becomes the note's category (it is saved with the note and
+    // only then offered to other notes), an invalid one keeps the entry open with the reason.
+    function newCategoryTyped(text) {
+        var r = bridge.checkCategory(text)
+        if (!r.ok) { newCategoryDialog.errorText = r.errorText; return }
+        page.category = r.name
+        newCategoryDialog.close()
+        area.forceActiveFocus()
     }
     function requestLeave() {
         if (dirty) { Qt.inputMethod.hide(); discardDialog.open() } else leave()
@@ -98,19 +131,38 @@ Item {
             width: parent.width
             spacing: 14
             Text {
-                text: qsTr("Category")
+                text: qsTr("Title")
                 font.pixelSize: 28
                 anchors.verticalCenter: parent.verticalCenter
                 color: "#000000"
             }
             TextField {
-                id: categoryField
-                width: parent.width - 170
+                id: titleField
+                width: parent.width - 120
                 font.pixelSize: 30
                 color: "#000000"
-                placeholderText: qsTr("none")
+                placeholderText: qsTr("required")
                 inputMethodHints: Qt.ImhNoPredictiveText
                 background: Rectangle { color: "#ffffff"; border.width: 2; border.color: "#111111" }
+                // a title is one line: Return moves on to the text, it never inserts a line break
+                Keys.onReturnPressed: area.forceActiveFocus()
+                Keys.onEnterPressed: area.forceActiveFocus()
+            }
+        }
+        Row {
+            width: parent.width
+            spacing: 14
+            Text {
+                text: qsTr("Category")
+                font.pixelSize: 28
+                anchors.verticalCenter: parent.verticalCenter
+                color: "#000000"
+            }
+            InkButton {
+                id: categoryButton
+                width: parent.width - 170
+                text: page.category === "" ? qsTr("No category") : page.category
+                onClicked: page.openCategoryPicker()
             }
         }
         Text {
@@ -161,6 +213,18 @@ Item {
         }
     }
 
+    ChoiceDialog {
+        id: categoryDialog
+        title: qsTr("Category")
+        onChosen: function (value) { page.categoryChosen(value) }
+    }
+    TextEntryDialog {
+        id: newCategoryDialog
+        title: qsTr("New category")
+        placeholder: qsTr("Name")
+        onAccepted: function (text) { page.newCategoryTyped(text) }
+        onRejected: area.forceActiveFocus()
+    }
     ConfirmDialog {
         id: discardDialog
         title: qsTr("Discard changes?")

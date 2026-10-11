@@ -87,6 +87,7 @@ enum class PushOutcome { Done, NoteFailed, Abort };
 
 NoteDraft draft_of(const Note& n) {
     NoteDraft d;
+    d.title = n.title;
     d.content = n.content;
     d.category = n.category;
     d.favorite = n.favorite;
@@ -94,7 +95,7 @@ NoteDraft draft_of(const Note& n) {
     return d;
 }
 
-NoteStore::PushSnapshot snapshot_of(const Note& n) { return {n.content, n.category, n.favorite}; }
+NoteStore::PushSnapshot snapshot_of(const Note& n) { return {n.title, n.content, n.category, n.favorite}; }
 
 // Transport-level problems end the whole run (there is no point in trying the next note).
 bool is_abort_class(ErrorClass c) {
@@ -134,6 +135,8 @@ SyncResult SyncEngine::run_locked() {
     for (size_t qi = 0; qi < queue.size(); ++qi) {
         const Note note = queue[qi];
         if (note.status == NoteStatus::Edited) {
+            // a title that breaks the rules is never sent (the editor cannot produce one; this is a safety net)
+            if (!validate_title(note.title).empty()) { ++failed_notes; continue; }
             // attachments first: the files must be on the server before any text refers to them (spec 002)
             Note cur = note;
             std::string outgoing = note.content;
@@ -150,7 +153,7 @@ SyncResult SyncEngine::run_locked() {
 
             NoteDraft draft = draft_of(cur);
             draft.content = outgoing;  // the local text may still hold tokens that never go to the server
-            const NoteStore::PushSnapshot sent{outgoing, cur.category, cur.favorite};
+            const NoteStore::PushSnapshot sent{cur.title, outgoing, cur.category, cur.favorite};
             WriteResult w;
             if (!cur.remote_id) {
                 w = api.create_note(draft);

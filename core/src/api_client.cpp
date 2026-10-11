@@ -225,7 +225,7 @@ NoteResult ApiClient::get_note(int64_t id, const std::optional<std::string>& if_
 }
 
 std::string draft_json(const NoteDraft& d) {
-    return "{\"content\":" + json::quote(d.content) + ",\"category\":" + json::quote(d.category) +
+    return "{\"title\":" + json::quote(d.title) + ",\"content\":" + json::quote(d.content) + ",\"category\":" + json::quote(d.category) +
            ",\"favorite\":" + (d.favorite ? "true" : "false") + ",\"modified\":" + std::to_string(d.modified) + "}";
 }
 

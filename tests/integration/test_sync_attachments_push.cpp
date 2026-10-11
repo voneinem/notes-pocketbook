@@ -12,6 +12,7 @@
 #include "pbnotes/attachment_ref.h"
 #include "pbnotes/attachment_service.h"
 #include "pbnotes/note_store.h"
+#include "pbnotes/title.h"
 #include "pbnotes/sync_engine.h"
 #include "test_support.h"
 #include "tmp_dir.h"
@@ -78,7 +79,7 @@ PB_TEST(an_existing_note_uploads_the_file_before_the_put_and_ends_in_sync) {
     const int64_t note = e.synced_note("Title\nbody", &remote);
     e.server.log.clear();
     auto a = e.add("photo one.png", "PNGBYTES");
-    PB_CHECK(e.store->save_local(note, "Title\nbody\n" + a.token + "\n", "", false, 500).error == EditError::None);
+    PB_CHECK(e.store->save_local(note, pbnotes::derive_title("Title\nbody\n" + a.token + "\n"), "Title\nbody\n" + a.token + "\n", "", false, 500).error == EditError::None);
 
     auto r = e.run();
     PB_CHECK(r.outcome == SyncOutcome::Success);
@@ -104,7 +105,7 @@ PB_TEST(an_existing_note_uploads_the_file_before_the_put_and_ends_in_sync) {
 PB_TEST(a_new_note_is_created_without_the_tokens_then_the_file_is_uploaded_then_the_text_is_put) {
     Env e;
     auto a = e.add("photo.png", "BYTES");
-    auto created = e.store->create_local("New note\n" + a.token + "\ntail", "Cat", false, 300);
+    auto created = e.store->create_local(pbnotes::derive_title("New note\n" + a.token + "\ntail"), "New note\n" + a.token + "\ntail", "Cat", false, 300);
     PB_CHECK(created.error == EditError::None);
     auto r = e.run();
     PB_CHECK(r.outcome == SyncOutcome::Success);
@@ -136,7 +137,7 @@ PB_TEST(a_new_note_is_created_without_the_tokens_then_the_file_is_uploaded_then_
 PB_TEST(a_note_that_consists_of_a_token_alone_is_created_with_empty_text) {
     Env e;
     auto a = e.add("photo.png", "BYTES");
-    auto created = e.store->create_local(a.token, "", false, 300);
+    auto created = e.store->create_local(pbnotes::derive_title(a.token), a.token, "", false, 300);
     PB_CHECK(created.error == EditError::None);
     PB_CHECK(e.run().outcome == SyncOutcome::Success);
     PB_CHECK_EQ(e.server.notes.size(), static_cast<size_t>(1));
@@ -150,7 +151,7 @@ PB_TEST(a_rejected_upload_strips_the_token_from_the_outgoing_text_only) {
     int64_t remote = 0;
     const int64_t note = e.synced_note("Title\nbody", &remote);
     auto a = e.add("big.png", "BYTES");
-    PB_CHECK(e.store->save_local(note, "Title\nbody\n" + a.token + "\nmore", "", false, 500).error == EditError::None);
+    PB_CHECK(e.store->save_local(note, pbnotes::derive_title("Title\nbody\n" + a.token + "\nmore"), "Title\nbody\n" + a.token + "\nmore", "", false, 500).error == EditError::None);
     e.server.upload_fail_status = 413;
 
     auto r = e.run();
@@ -179,7 +180,7 @@ PB_TEST(a_rejected_upload_strips_the_token_from_the_outgoing_text_only) {
 PB_TEST(a_transport_failure_during_the_upload_loses_nothing_and_never_creates_the_note_twice) {
     Env e;
     auto a = e.add("photo.png", "BYTES");
-    auto created = e.store->create_local("New note\n" + a.token, "", false, 300);
+    auto created = e.store->create_local(pbnotes::derive_title("New note\n" + a.token), "New note\n" + a.token, "", false, 300);
     e.server.upload_network_failures = 1;
 
     auto r = e.run();
@@ -204,7 +205,7 @@ PB_TEST(a_failure_between_the_upload_and_the_put_does_not_upload_again) {
     int64_t remote = 0;
     const int64_t note = e.synced_note("Title", &remote);
     auto a = e.add("photo.png", "BYTES");
-    PB_CHECK(e.store->save_local(note, "Title\n" + a.token, "", false, 500).error == EditError::None);
+    PB_CHECK(e.store->save_local(note, pbnotes::derive_title("Title\n" + a.token), "Title\n" + a.token, "", false, 500).error == EditError::None);
     const size_t first = e.transport.requests().size();
     e.transport.fail_request(first + 1, ErrorClass::Network);   // request 0: the upload, request 1: the PUT
 
@@ -225,7 +226,7 @@ PB_TEST(a_lost_upload_response_uploads_again_and_uses_the_name_the_server_return
     int64_t remote = 0;
     const int64_t note = e.synced_note("Title", &remote);
     auto a = e.add("photo.png", "BYTES");
-    PB_CHECK(e.store->save_local(note, "Title\n" + a.token, "", false, 500).error == EditError::None);
+    PB_CHECK(e.store->save_local(note, pbnotes::derive_title("Title\n" + a.token), "Title\n" + a.token, "", false, 500).error == EditError::None);
     e.server.lose_next_upload_response = true;   // the server stores the file, the answer never arrives
 
     PB_CHECK(e.run().outcome == SyncOutcome::Offline);
@@ -244,7 +245,7 @@ PB_TEST(a_conflict_after_the_upload_keeps_the_server_text_and_the_copy_uploads_u
     int64_t remote = 0;
     const int64_t note = e.synced_note("Title\nold", &remote);
     auto a = e.add("photo.png", "BYTES");
-    PB_CHECK(e.store->save_local(note, "Title\nmy edit\n" + a.token + "\n", "", false, 500).error == EditError::None);
+    PB_CHECK(e.store->save_local(note, pbnotes::derive_title("Title\nmy edit\n" + a.token + "\n"), "Title\nmy edit\n" + a.token + "\n", "", false, 500).error == EditError::None);
     e.server.edit_on_server(remote, "Title\nthe server's edit\n");   // changed meanwhile: the PUT will get 412
 
     auto r = e.run();
@@ -257,7 +258,7 @@ PB_TEST(a_conflict_after_the_upload_keeps_the_server_text_and_the_copy_uploads_u
         if (kv.first != remote) copy_remote = kv.first;
     const std::string copy_text = e.server.notes.at(copy_remote).content;
     PB_CHECK(copy_text.find("my edit") != std::string::npos);
-    PB_CHECK(copy_text.find("(conflict ") != std::string::npos);
+    PB_CHECK_EQ(e.server.notes.at(copy_remote).title.find("Title (conflict "), static_cast<size_t>(0));   // the marker is in the title
     PB_CHECK(copy_text.find(".attachments." + std::to_string(copy_remote) + "/photo.png") != std::string::npos);
     PB_CHECK_EQ(e.server.uploads.size(), static_cast<size_t>(2));   // once for the original note, once for the copy
     PB_CHECK_EQ(e.server.uploads[1].note_id, copy_remote);
@@ -272,7 +273,7 @@ PB_TEST(a_server_without_attachment_support_keeps_them_pending_and_pushes_the_te
     int64_t remote = 0;
     const int64_t note = e.synced_note("Title", &remote);
     auto a = e.add("photo.png", "BYTES");
-    PB_CHECK(e.store->save_local(note, "Title\nline\n" + a.token + "\n", "", false, 500).error == EditError::None);
+    PB_CHECK(e.store->save_local(note, pbnotes::derive_title("Title\nline\n" + a.token + "\n"), "Title\nline\n" + a.token + "\n", "", false, 500).error == EditError::None);
     const int before = e.server.attachment_requests;
 
     auto r = e.run();
@@ -291,7 +292,7 @@ PB_TEST(a_note_deleted_on_the_server_and_edited_here_is_kept_with_its_attachment
     int64_t remote = 0;
     const int64_t note = e.synced_note("Title\nbody", &remote);
     auto a = e.add("photo.png", "BYTES");
-    PB_CHECK(e.store->save_local(note, "Title\nbody\n" + a.token, "", false, 500).error == EditError::None);
+    PB_CHECK(e.store->save_local(note, pbnotes::derive_title("Title\nbody\n" + a.token), "Title\nbody\n" + a.token, "", false, 500).error == EditError::None);
     e.server.notes.erase(remote);   // deleted on the server
 
     auto r = e.run();
@@ -319,7 +320,7 @@ PB_TEST(without_an_attachment_folder_pending_attachments_stay_pending_and_the_no
     int64_t remote = 0;
     const int64_t note = e.synced_note("Title", &remote);
     auto a = e.add("photo.png", "BYTES");
-    PB_CHECK(e.store->save_local(note, "Title\n" + a.token, "", false, 500).error == EditError::None);
+    PB_CHECK(e.store->save_local(note, pbnotes::derive_title("Title\n" + a.token), "Title\n" + a.token, "", false, 500).error == EditError::None);
     SyncEngine engine(*e.store, e.transport, [&] { return e.now; });   // default options: no folder
     auto r = engine.run();
     PB_CHECK(r.outcome == SyncOutcome::Partial);

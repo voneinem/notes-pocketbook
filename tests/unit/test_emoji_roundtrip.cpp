@@ -50,13 +50,13 @@ PB_TEST(local_edits_keep_every_emoji_byte) {
     pbtest::TmpDir d;
     auto store = NoteStore::open(d.file("db"));
     const std::string text = kGrin + " Title\n" + kEmojiLine + "\n- [ ] task " + kFamily;
-    auto r = store->create_local(text, "Cat " + kFlagDE, false, 1000);
+    auto r = store->create_local(pbnotes::derive_title(text), text, "Cat " + kFlagDE, false, 1000);
     PB_CHECK(r.error == pbnotes::EditError::None);
     PB_CHECK_EQ(store->get(r.local_id)->content, text);
     PB_CHECK_EQ(store->get(r.local_id)->category, "Cat " + kFlagDE);
     PB_CHECK_EQ(store->get(r.local_id)->title, kGrin + " Title");
 
-    PB_CHECK(store->save_local(r.local_id, text + "\nmore " + kThumbSkin, "Cat " + kFlagDE, true, 1001).error == pbnotes::EditError::None);
+    PB_CHECK(store->save_local(r.local_id, pbnotes::derive_title(text + "\nmore " + kThumbSkin), text + "\nmore " + kThumbSkin, "Cat " + kFlagDE, true, 1001).error == pbnotes::EditError::None);
     PB_CHECK_EQ(store->get(r.local_id)->content, text + "\nmore " + kThumbSkin);
 
     PB_CHECK(store->toggle_task(r.local_id, 2, 1002).error == pbnotes::EditError::None);
@@ -71,9 +71,9 @@ PB_TEST(local_edits_keep_every_emoji_byte) {
 PB_TEST(searching_for_an_emoji_finds_the_note) {
     pbtest::TmpDir d;
     auto store = NoteStore::open(d.file("db"));
-    store->create_local("Smile " + kGrin + " here", "", false, 1);
-    store->create_local("Flag " + kFlagDE, "", false, 2);
-    store->create_local("Nothing special", "", false, 3);
+    store->create_local(pbnotes::derive_title("Smile " + kGrin + " here"), "Smile " + kGrin + " here", "", false, 1);
+    store->create_local(pbnotes::derive_title("Flag " + kFlagDE), "Flag " + kFlagDE, "", false, 2);
+    store->create_local(pbnotes::derive_title("Nothing special"), "Nothing special", "", false, 3);
     pbnotes::ListQuery q;
     q.search = kGrin;
     PB_CHECK_EQ(store->list(q).size(), static_cast<size_t>(1));
@@ -112,7 +112,7 @@ struct Env {
 PB_TEST(push_then_pull_returns_the_content_byte_for_byte) {
     Env e;
     const std::string text = kGrin + " Title\n" + kEmojiLine + "\n";
-    auto r = e.store->create_local(text, "", false, 1000);
+    auto r = e.store->create_local(pbnotes::derive_title(text), text, "", false, 1000);
     PB_CHECK(e.run().outcome == pbnotes::SyncOutcome::Success);
     PB_CHECK_EQ(e.server.notes.begin()->second.content, text);   // what the server received
     e.server.edit_on_server(e.server.notes.begin()->first, text + "more\n");
@@ -140,7 +140,7 @@ PB_TEST(editing_an_unrelated_word_and_syncing_keeps_the_emoji_line_identical) {
     const int64_t sid = e.server.add_on_server("Title\n" + line + "\nword one\n");
     PB_CHECK(e.run().outcome == pbnotes::SyncOutcome::Success);
     const int64_t local = e.store->get_by_remote_id(sid)->local_id;
-    PB_CHECK(e.store->save_local(local, "Title\n" + line + "\nword two\n", "", false, 1100).error == pbnotes::EditError::None);
+    PB_CHECK(e.store->save_local(local, pbnotes::derive_title("Title\n" + line + "\nword two\n"), "Title\n" + line + "\nword two\n", "", false, 1100).error == pbnotes::EditError::None);
     PB_CHECK(e.run().outcome == pbnotes::SyncOutcome::Success);
     PB_CHECK_EQ(e.server.notes.at(sid).content, "Title\n" + line + "\nword two\n");
 }

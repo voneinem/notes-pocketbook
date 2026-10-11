@@ -76,6 +76,33 @@ CREATE UNIQUE INDEX IF NOT EXISTS attachments_path ON attachments(note_local_id,
     WHERE remote_path IS NOT NULL;
 )SQL";
 
+// Schema 2 -> 3 (spec 004, data-model.md): data only. Unsynced notes carried the raw first line as their title;
+// they keep what the list showed (legacy_title: no heading marker, within the title rules) so the first push
+// never sends a guess, and every preview is recomputed with the rule that keeps a first line which is not the
+// title. Nothing else of any row changes. Runs inside the migration transaction; returns false on failure.
+bool migrate_titles_and_previews(sqlite3* db, std::string* error) {
+    struct Row { int64_t id; std::string status, title, content, excerpt; };
+    std::vector<Row> rows;
+    {
+        Stmt st(db, "SELECT local_id,status,title,content,excerpt FROM notes");
+        if (!st.ok()) { *error = sqlite_error(db); return false; }
+        while (st.step() == SQLITE_ROW) rows.push_back({st.int64(0), st.text(1), st.text(2), st.text(3), st.text(4)});
+    }
+    Stmt up(db, "UPDATE notes SET title=?1, excerpt=?2 WHERE local_id=?3");
+    if (!up.ok()) { *error = sqlite_error(db); return false; }
+    for (const Row& r : rows) {
+        const std::string title = r.status == "edited" ? legacy_title(r.title) : r.title;
+        const std::string excerpt = make_excerpt(r.content, title);
+        if (title == r.title && excerpt == r.excerpt) continue;
+        sqlite3_reset(up.get());
+        up.bind_text(1, title);
+        up.bind_text(2, excerpt);
+        up.bind_int64(3, r.id);
+        if (up.step() != SQLITE_DONE) { *error = sqlite_error(db); return false; }
+    }
+    return true;
+}
+
 bool file_size(const std::string& path, long long* size) {
     struct stat st;
     if (::stat(path.c_str(), &st) != 0) return false;
@@ -93,11 +120,11 @@ bool copy_file(const std::string& from, const std::string& to) {
 }
 
 // The title shown for a note that is in sync with the server: the server's title (its file name, the
-// one the web and Android apps show); a note the server gave no title is shown by its first line.
-// Local edits always show the first line of the text (derive_title) until they are synced.
+// one the web and Android apps show); only a note the server gave no title is shown by its first line.
+// Local edits keep the title the user entered (spec 004) until the server confirms them.
 std::string title_for(const ApiNote& n) {
     std::string t = derive_title(n.server_title);
-    if (t.empty()) t = derive_title(n.content);
+    if (t.empty()) t = strip_heading_marker(derive_title(n.content));   // as the server derives a title: no heading marker
     return t;
 }
 
@@ -159,7 +186,7 @@ std::unique_ptr<NoteStore> NoteStore::open(const std::string& path, std::string*
                 return fail("migration failed; backup kept at " + backup);
         }
         if (!exec(db, "BEGIN IMMEDIATE", &err)) return fail("migration: " + err);
-        if (!exec(db, kSchemaSql, &err) ||
+        if (!exec(db, kSchemaSql, &err) || (version >= 1 && !migrate_titles_and_previews(db, &err)) ||
             !exec(db, ("PRAGMA user_version=" + std::to_string(kSchemaVersion)).c_str(), &err)) {
             std::string ignored;
             exec(db, "ROLLBACK", &ignored);
@@ -564,7 +591,7 @@ PullApplyResult NoteStore::apply_remote(const std::vector<ApiNote>& listing) {
             ins.bind_int64(5, n.favorite ? 1 : 0);
             ins.bind_int64(6, n.modified);
             ins.bind_text(7, n.etag);
-            ins.bind_text(8, make_excerpt(n.content));
+            ins.bind_text(8, make_excerpt(n.content, title_for(n)));
             ok = ins.step() == SQLITE_DONE;
             if (ok) ++result.inserted;
             continue;
@@ -585,7 +612,7 @@ PullApplyResult NoteStore::apply_remote(const std::vector<ApiNote>& listing) {
         up.bind_int64(4, n.favorite ? 1 : 0);
         up.bind_int64(5, n.modified);
         up.bind_text(6, n.etag);
-        up.bind_text(7, make_excerpt(n.content));
+        up.bind_text(7, make_excerpt(n.content, title_for(n)));
         up.bind_int64(8, l.local_id);
         ok = up.step() == SQLITE_DONE;
         if (ok) {
@@ -615,6 +642,57 @@ PullApplyResult NoteStore::apply_remote(const std::vector<ApiNote>& listing) {
 }
 
 // ---- local edits ---------------------------------------------------------------------------------
+
+namespace {
+
+// Number of code points of strictly valid UTF-8 (no overlong forms, surrogates or values above U+10FFFF), or -1.
+long strict_utf8_length(const std::string& s) {
+    long chars = 0;
+    for (size_t i = 0; i < s.size(); ++chars) {
+        const unsigned char b = static_cast<unsigned char>(s[i]);
+        size_t n;
+        uint32_t cp;
+        if (b < 0x80) { n = 1; cp = b; }
+        else if (b >= 0xC2 && b <= 0xDF) { n = 2; cp = b & 0x1F; }
+        else if ((b >> 4) == 0xE) { n = 3; cp = b & 0x0F; }
+        else if (b >= 0xF0 && b <= 0xF4) { n = 4; cp = b & 0x07; }
+        else return -1;
+        if (i + n > s.size()) return -1;
+        for (size_t k = 1; k < n; ++k) {
+            const unsigned char c = static_cast<unsigned char>(s[i + k]);
+            if ((c & 0xC0) != 0x80) return -1;
+            cp = (cp << 6) | (c & 0x3F);
+        }
+        if ((n == 3 && cp < 0x800) || (n == 4 && cp < 0x10000) || cp > 0x10FFFF || (cp >= 0xD800 && cp <= 0xDFFF))
+            return -1;
+        i += n;
+    }
+    return chars;
+}
+
+bool is_title_space(char c) { return c == ' ' || c == '\t' || c == '\r' || c == '\n' || c == '\f' || c == '\v'; }
+
+}  // namespace
+
+std::string trim_title(const std::string& title) {
+    size_t b = 0, e = title.size();
+    while (b < e && is_title_space(title[b])) ++b;
+    while (e > b && is_title_space(title[e - 1])) --e;
+    return title.substr(b, e - b);
+}
+
+std::string validate_title(const std::string& title) {
+    const std::string t = trim_title(title);
+    if (t.empty()) return "title_empty";
+    const long chars = strict_utf8_length(t);
+    if (chars < 0) return "title_invalid";
+    for (char c : t) {
+        const unsigned char b = static_cast<unsigned char>(c);
+        if (b < 0x20 || b == 0x7F) return "title_control_chars";
+    }
+    if (chars > 255) return "title_too_long";
+    return std::string();
+}
 
 std::string validate_category(const std::string& c) {
     size_t chars = 0;
@@ -657,8 +735,18 @@ EditResult edit_error(EditError e, const char* key) {
 
 }  // namespace
 
-EditResult NoteStore::create_local(const std::string& content, const std::string& category, bool favorite,
-                                   int64_t now) {
+EditResult NoteStore::create_local(const std::string& title, const std::string& content, const std::string& category,
+                                   bool favorite, int64_t now) {
+    const std::string trimmed_title = trim_title(title);
+    // neither title nor text: there is nothing to say about the title, it is simply an empty note
+    if (only_whitespace(content) && trimmed_title.empty()) return edit_error(EditError::EmptyContent, "content_empty");
+    const std::string title_error = validate_title(title);
+    if (!title_error.empty()) {
+        EditResult r;
+        r.error = EditError::InvalidTitle;
+        r.error_key = title_error;
+        return r;
+    }
     if (only_whitespace(content)) return edit_error(EditError::EmptyContent, "content_empty");
     const std::string cat_error = validate_category(category);
     if (!cat_error.empty()) {
@@ -675,12 +763,12 @@ EditResult NoteStore::create_local(const std::string& content, const std::string
             "VALUES('edited',?1,?2,?3,?4,?5,?6)");
     bool ok = st.ok();
     if (ok) {
-        st.bind_text(1, derive_title(content));
+        st.bind_text(1, trimmed_title);
         st.bind_text(2, content);
         st.bind_text(3, category);
         st.bind_int64(4, favorite ? 1 : 0);
         st.bind_int64(5, now);
-        st.bind_text(6, make_excerpt(content));
+        st.bind_text(6, make_excerpt(content, trimmed_title));
         ok = st.step() == SQLITE_DONE;
     }
     const int64_t id = ok ? sqlite3_last_insert_rowid(db_) : 0;
@@ -695,7 +783,8 @@ EditResult NoteStore::create_local(const std::string& content, const std::string
     return r;
 }
 
-EditResult NoteStore::update_locked(int64_t local_id, const std::optional<std::string>& content,
+EditResult NoteStore::update_locked(int64_t local_id, const std::optional<std::string>& title,
+                                    const std::optional<std::string>& content,
                                     const std::optional<std::string>& category, const std::optional<bool>& favorite,
                                     int64_t now) {
     Note current;
@@ -708,6 +797,18 @@ EditResult NoteStore::update_locked(int64_t local_id, const std::optional<std::s
     }
     if (current.status == NoteStatus::Deleted) return edit_error(EditError::NotFound, "not_found");
 
+    std::string new_title = current.title;   // only an explicit title is judged; a stored legacy one is kept as is
+    if (title) {
+        const std::string title_error = validate_title(*title);
+        if (!title_error.empty()) {
+            EditResult r;
+            r.error = EditError::InvalidTitle;
+            r.error_key = title_error;
+            r.local_id = local_id;
+            return r;
+        }
+        new_title = trim_title(*title);
+    }
     const std::string new_content = content.value_or(current.content);
     const std::string new_category = category.value_or(current.category);
     const bool new_favorite = favorite.value_or(current.favorite);
@@ -722,7 +823,8 @@ EditResult NoteStore::update_locked(int64_t local_id, const std::optional<std::s
     }
     EditResult ok_result;
     ok_result.local_id = local_id;
-    if (new_content == current.content && new_category == current.category && new_favorite == current.favorite)
+    if (new_title == current.title && new_content == current.content && new_category == current.category &&
+        new_favorite == current.favorite)
         return ok_result;  // nothing changed: nothing to push
 
     std::string err;
@@ -732,12 +834,12 @@ EditResult NoteStore::update_locked(int64_t local_id, const std::optional<std::s
             "WHERE local_id=?7");
     bool ok = up.ok();
     if (ok) {
-        up.bind_text(1, derive_title(new_content));
+        up.bind_text(1, new_title);
         up.bind_text(2, new_content);
         up.bind_text(3, new_category);
         up.bind_int64(4, new_favorite ? 1 : 0);
         up.bind_int64(5, now);
-        up.bind_text(6, make_excerpt(new_content));
+        up.bind_text(6, make_excerpt(new_content, new_title));
         up.bind_int64(7, local_id);
         ok = up.step() == SQLITE_DONE;
     }
@@ -752,20 +854,20 @@ EditResult NoteStore::update_locked(int64_t local_id, const std::optional<std::s
     return ok_result;
 }
 
-EditResult NoteStore::save_local(int64_t local_id, const std::string& content, const std::string& category,
-                                 bool favorite, int64_t now) {
+EditResult NoteStore::save_local(int64_t local_id, const std::string& title, const std::string& content,
+                                 const std::string& category, bool favorite, int64_t now) {
     std::lock_guard<std::mutex> lock(mutex_);
-    return update_locked(local_id, content, category, favorite, now);
+    return update_locked(local_id, title, content, category, favorite, now);
 }
 
 EditResult NoteStore::set_favorite(int64_t local_id, bool favorite, int64_t now) {
     std::lock_guard<std::mutex> lock(mutex_);
-    return update_locked(local_id, std::nullopt, std::nullopt, favorite, now);
+    return update_locked(local_id, std::nullopt, std::nullopt, std::nullopt, favorite, now);
 }
 
 EditResult NoteStore::set_category(int64_t local_id, const std::string& category, int64_t now) {
     std::lock_guard<std::mutex> lock(mutex_);
-    return update_locked(local_id, std::nullopt, category, std::nullopt, now);
+    return update_locked(local_id, std::nullopt, std::nullopt, category, std::nullopt, now);
 }
 
 EditResult NoteStore::mark_deleted(int64_t local_id) {
@@ -807,7 +909,7 @@ EditResult NoteStore::toggle_task(int64_t local_id, int line_index, int64_t now)
         r.local_id = local_id;
         return r;
     }
-    return update_locked(local_id, toggled, std::nullopt, std::nullopt, now);
+    return update_locked(local_id, std::nullopt, toggled, std::nullopt, std::nullopt, now);
 }
 
 bool NoteStore::reset_local_data() {
@@ -863,7 +965,7 @@ bool NoteStore::restore_from_server(int64_t local_id, const ApiNote& server) {
     st.bind_int64(4, server.favorite ? 1 : 0);
     st.bind_int64(5, server.modified);
     st.bind_text(6, server.etag);
-    st.bind_text(7, make_excerpt(server.content));
+    st.bind_text(7, make_excerpt(server.content, title_for(server)));
     st.bind_int64(8, local_id);
     return st.step() == SQLITE_DONE && sqlite3_changes(db_) == 1;
 }
@@ -891,11 +993,12 @@ ConflictResolution NoteStore::resolve_conflict(int64_t local_id, const ApiNote& 
     }
     if (local.status != NoteStatus::Edited) return rollback();
 
-    const bool identical = local.content == server.content && local.category == server.category &&
-                           local.favorite == server.favorite;
+    // the title is part of what can differ: a title-only edit must never be adopted away silently
+    const bool identical = local.title == title_for(server) && local.content == server.content &&
+                           local.category == server.category && local.favorite == server.favorite;
     if (!identical) {
         // 2. pick an unused conflict title ("... (conflict DATE)", then " #2", " #3", ...)
-        const std::string base_title = derive_title(local.content);
+        const std::string& base_title = local.title;
         int number = 1;
         std::string suffix;
         for (;; ++number) {
@@ -907,7 +1010,7 @@ ConflictResolution NoteStore::resolve_conflict(int64_t local_id, const ApiNote& 
             if (taken.int64(0) == 0) break;
             if (number > 10000) return rollback();
         }
-        const std::string copy_content = with_title_suffix(local.content, suffix);
+        const std::string copy_title = base_title + suffix;   // the text is copied as it is
 
         // 3. insert the copy FIRST
         int64_t copy_id = 0;
@@ -916,21 +1019,21 @@ ConflictResolution NoteStore::resolve_conflict(int64_t local_id, const ApiNote& 
                      "INSERT INTO notes(status,title,content,category,favorite,modified,excerpt) "
                      "VALUES('edited',?1,?2,?3,?4,?5,?6)");
             if (!ins.ok()) return rollback();
-            ins.bind_text(1, derive_title(copy_content));
-            ins.bind_text(2, copy_content);
+            ins.bind_text(1, copy_title);
+            ins.bind_text(2, local.content);
             ins.bind_text(3, local.category);
             ins.bind_int64(4, local.favorite ? 1 : 0);
             ins.bind_int64(5, now);
-            ins.bind_text(6, make_excerpt(copy_content));
+            ins.bind_text(6, make_excerpt(local.content, local.title));
             if (ins.step() != SQLITE_DONE) return rollback();
             copy_id = sqlite3_last_insert_rowid(db_);
         }
         // 4. verify what was written against the local text before the original is touched
         {
-            Stmt chk(db_, "SELECT content FROM notes WHERE local_id=?1");
+            Stmt chk(db_, "SELECT title,content FROM notes WHERE local_id=?1");
             if (!chk.ok()) return rollback();
             chk.bind_int64(1, copy_id);
-            if (chk.step() != SQLITE_ROW || chk.text(0) != with_title_suffix(local.content, suffix)) return rollback();
+            if (chk.step() != SQLITE_ROW || chk.text(0) != copy_title || chk.text(1) != local.content) return rollback();
         }
         // attachments: pending ones move to the copy, downloaded ones are duplicated for it (research R-4)
         if (!copy_attachments_for_conflict_locked(local_id, copy_id, local, now)) return rollback();
@@ -950,7 +1053,7 @@ ConflictResolution NoteStore::resolve_conflict(int64_t local_id, const ApiNote& 
         up.bind_int64(4, server.favorite ? 1 : 0);
         up.bind_int64(5, server.modified);
         up.bind_text(6, server.etag);
-        up.bind_text(7, make_excerpt(server.content));
+        up.bind_text(7, make_excerpt(server.content, title_for(server)));
         up.bind_int64(8, local_id);
         if (up.step() != SQLITE_DONE) return rollback();
     }
@@ -976,12 +1079,12 @@ bool NoteStore::confirm_push(int64_t local_id, const ApiNote& server, const Push
     if (!exec(db_, "BEGIN IMMEDIATE", &err)) return false;
     bool ok = true;
     {
-        Stmt cur(db_, "SELECT status,content,category,favorite FROM notes WHERE local_id=?1");
+        Stmt cur(db_, "SELECT status,content,category,favorite,title FROM notes WHERE local_id=?1");
         ok = cur.ok();
         if (ok) cur.bind_int64(1, local_id);
         if (ok && cur.step() == SQLITE_ROW) {
             const bool unchanged = cur.text(0) == "edited" && cur.text(1) == sent.content && cur.text(2) == sent.category &&
-                                   (cur.int64(3) != 0) == sent.favorite;
+                                   (cur.int64(3) != 0) == sent.favorite && cur.text(4) == sent.title;
             Stmt up(db_, unchanged
                              ? "UPDATE notes SET status='void', remote_id=COALESCE(remote_id,?1), etag=?2, modified=?3, title=?5 WHERE local_id=?4"
                              : "UPDATE notes SET remote_id=COALESCE(remote_id,?1), etag=?2 WHERE local_id=?4");

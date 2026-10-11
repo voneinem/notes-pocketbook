@@ -15,6 +15,7 @@
 
 #include "notes_bridge.h"
 #include "pbnotes/note_store.h"
+#include "pbnotes/title.h"
 #include "test_support.h"
 #include "tls_test_server.h"
 
@@ -207,7 +208,7 @@ PB_TEST(forgetting_the_account_is_refused_while_changes_are_pending) {
     bridge.saveAccount("https://cloud.example.com", "alice", "pw");
     {
         auto store = pbnotes::NoteStore::open(data.file("pbnotes.db"));
-        store->create_local("Unsynced note\nbody", "", false, 1000);
+        store->create_local(pbnotes::derive_title("Unsynced note\nbody"), "Unsynced note\nbody", "", false, 1000);
     }
     PB_CHECK(!bridge.forgetAccount());
     PB_CHECK(bridge.property("configured").toBool());
@@ -416,7 +417,7 @@ PB_TEST(a_new_note_is_saved_pending_and_survives_a_restart) {
     {
         NotesBridge bridge(config_for(data));
         PB_CHECK_EQ(bridge.property("pendingCount").toInt(), 0);
-        id = bridge.saveNote(-1, "Fresh idea\nwith a body", "Ideas", true);
+        id = bridge.saveNote(-1, "Fresh idea", "Fresh idea\nwith a body", "Ideas", true);
         PB_CHECK(id > 0);
         PB_CHECK_EQ(bridge.property("pendingCount").toInt(), 1);
     }
@@ -437,7 +438,7 @@ PB_TEST(an_empty_new_note_is_rejected_and_nothing_is_stored) {
     pbtest::TmpDir data;
     NotesBridge bridge(config_for(data));
     ErrorCatcher errors(bridge);
-    PB_CHECK_EQ(bridge.saveNote(-1, "  \n \t", "", false), static_cast<qlonglong>(-1));
+    PB_CHECK_EQ(bridge.saveNote(-1, "Whatever", "  \n \t", "", false), static_cast<qlonglong>(-1));
     PB_CHECK_EQ(errors.keys.size(), 1);
     PB_CHECK_EQ(errors.keys.at(0).toStdString(), std::string("content_empty"));
     PB_CHECK(bridge.listNotes().isEmpty());
@@ -450,7 +451,7 @@ PB_TEST(editing_a_synced_note_marks_it_pending_and_updates_the_title) {
     const qlonglong id = bridge.listNotes().at(0).toMap().value("localId").toLongLong();
     int changed = 0;
     QObject::connect(&bridge, &NotesBridge::notesChanged, [&] { ++changed; });
-    PB_CHECK_EQ(bridge.saveNote(id, "New first line\nbody", "Home", false), id);
+    PB_CHECK_EQ(bridge.saveNote(id, "New first line", "New first line\nbody", "Home", false), id);
     PB_CHECK(changed >= 1);
     const QVariantMap row = bridge.listNotes().at(0).toMap();
     PB_CHECK_EQ(row.value("title").toString().toStdString(), std::string("New first line"));
@@ -469,8 +470,232 @@ PB_TEST(an_invalid_category_is_refused_and_the_old_one_stays) {
     PB_CHECK_EQ(bridge.listNotes().at(0).toMap().value("category").toString().toStdString(), std::string("Home"));
     PB_CHECK(bridge.setCategory(id, "Work/Projects"));
     PB_CHECK_EQ(bridge.listNotes().at(0).toMap().value("category").toString().toStdString(), std::string("Work/Projects"));
-    PB_CHECK_EQ(bridge.saveNote(id, "Note\nbody", "x\x01y", false), static_cast<qlonglong>(-1));  // control character
+    PB_CHECK_EQ(bridge.saveNote(id, "Note", "Note\nbody", "x\x01y", false), static_cast<qlonglong>(-1));  // control character
     PB_CHECK(!bridge.message("category_too_long").startsWith("category_"));  // has a real text
+}
+
+// ---- spec 004: the explicit title -------------------------------------------------------------------------------
+
+PB_TEST(the_editor_gets_the_stored_title_as_it_is) {
+    pbtest::TmpDir data;
+    NotesBridge bridge(config_for(data));
+    const qlonglong id = bridge.saveNote(-1, "## Plan", "Something else entirely\nbody", "", false);
+    PB_CHECK(id > 0);
+    const QVariantMap edit = bridge.loadForEdit(id);
+    PB_CHECK_EQ(edit.value("title").toString().toStdString(), std::string("## Plan"));   // not display-processed
+    PB_CHECK_EQ(edit.value("text").toString().toStdString(), std::string("Something else entirely\nbody"));
+}
+
+PB_TEST(list_and_reader_show_the_title_exactly_as_entered) {
+    pbtest::TmpDir data;
+    NotesBridge bridge(config_for(data));
+    const qlonglong id = bridge.saveNote(-1, "  # Not a heading  ", "text", "", false);
+    PB_CHECK(id > 0);
+    PB_CHECK_EQ(bridge.listNotes().at(0).toMap().value("title").toString().toStdString(), std::string("# Not a heading"));
+    PB_CHECK_EQ(bridge.openNote(id).value("title").toString().toStdString(), std::string("# Not a heading"));
+}
+
+PB_TEST(editing_the_text_does_not_change_the_title_and_editing_the_title_does_not_change_the_text) {
+    pbtest::TmpDir data;
+    NotesBridge bridge(config_for(data));
+    const qlonglong id = bridge.saveNote(-1, "Groceries", "First line\nmilk", "", false);
+    PB_CHECK_EQ(bridge.saveNote(id, "Groceries", "Another first line\nmilk", "", false), id);
+    PB_CHECK_EQ(bridge.listNotes().at(0).toMap().value("title").toString().toStdString(), std::string("Groceries"));
+    PB_CHECK_EQ(bridge.saveNote(id, "Shopping", "Another first line\nmilk", "", false), id);
+    PB_CHECK_EQ(bridge.listNotes().at(0).toMap().value("title").toString().toStdString(), std::string("Shopping"));
+    PB_CHECK_EQ(bridge.loadForEdit(id).value("text").toString().toStdString(), std::string("Another first line\nmilk"));
+}
+
+PB_TEST(a_refused_title_reports_a_real_text_and_stores_nothing) {
+    pbtest::TmpDir data;
+    NotesBridge bridge(config_for(data));
+    ErrorCatcher errors(bridge);
+    PB_CHECK_EQ(bridge.saveNote(-1, "", "Some text", "", false), static_cast<qlonglong>(-1));
+    PB_CHECK_EQ(bridge.saveNote(-1, "   ", "Some text", "", false), static_cast<qlonglong>(-1));
+    PB_CHECK_EQ(bridge.saveNote(-1, "two\nlines", "Some text", "", false), static_cast<qlonglong>(-1));
+    PB_CHECK_EQ(bridge.saveNote(-1, QString(256, QLatin1Char('a')), "Some text", "", false), static_cast<qlonglong>(-1));
+    PB_CHECK_EQ(errors.keys.size(), 4);
+    PB_CHECK_EQ(errors.keys.at(0).toStdString(), std::string("title_empty"));
+    PB_CHECK_EQ(errors.keys.at(1).toStdString(), std::string("title_empty"));
+    PB_CHECK_EQ(errors.keys.at(2).toStdString(), std::string("title_control_chars"));
+    PB_CHECK_EQ(errors.keys.at(3).toStdString(), std::string("title_too_long"));
+    PB_CHECK(bridge.listNotes().isEmpty());
+    for (const char* key : {"title_empty", "title_too_long", "title_control_chars", "title_invalid"}) {
+        const std::string text = bridge.message(key).toStdString();
+        PB_CHECK(!text.empty() && text.rfind("title_", 0) != 0);   // a sentence, not the key
+    }
+    PB_CHECK_EQ(bridge.message("title_empty").toStdString(), std::string("The note needs a title."));
+    PB_CHECK_EQ(bridge.message("title_too_long").toStdString(), std::string("The title is too long (at most 255 characters)."));
+}
+
+PB_TEST(a_note_that_was_saved_keeps_its_text_when_the_title_is_refused) {
+    pbtest::TmpDir data;
+    NotesBridge bridge(config_for(data));
+    const qlonglong id = bridge.saveNote(-1, "Keep", "Original text", "", false);
+    PB_CHECK_EQ(bridge.saveNote(id, "", "Changed text", "", false), static_cast<qlonglong>(-1));
+    PB_CHECK_EQ(bridge.loadForEdit(id).value("text").toString().toStdString(), std::string("Original text"));
+    PB_CHECK_EQ(bridge.loadForEdit(id).value("title").toString().toStdString(), std::string("Keep"));
+}
+
+PB_TEST(a_note_with_no_title_at_all_is_shown_as_untitled) {
+    pbtest::TmpDir data;
+    seed(data, {remote_note(1, "", "", 100)});   // no text and no server title
+    NotesBridge bridge(config_for(data));
+    PB_CHECK_EQ(bridge.listNotes().at(0).toMap().value("title").toString().toStdString(), std::string("(untitled)"));
+}
+
+// ---- spec 004: the category picker ------------------------------------------------------------------------------------
+
+namespace {
+QStringList choice_values(const QVariantList& choices) {
+    QStringList out;
+    for (const QVariant& c : choices) out << c.toMap().value("value").toString();
+    return out;
+}
+QStringList choice_labels(const QVariantList& choices) {
+    QStringList out;
+    for (const QVariant& c : choices) out << c.toMap().value("label").toString();
+    return out;
+}
+}  // namespace
+
+PB_TEST(the_picker_lists_no_category_new_category_and_every_category_in_use) {
+    pbtest::TmpDir data;
+    seed(data, {remote_note(1, "A\nbody", "Work", 100), remote_note(2, "B\nbody", "Home", 90), remote_note(3, "C\nbody", "Work", 80)});
+    NotesBridge bridge(config_for(data));
+    const QVariantList choices = bridge.categoryChoices(QString());
+    PB_CHECK_EQ(choice_values(choices).join("|").toStdString(), std::string("none|new|c:Home|c:Work"));
+    PB_CHECK_EQ(choice_labels(choices).at(0).toStdString(), std::string("No category"));
+    PB_CHECK_EQ(choice_labels(choices).at(2).toStdString(), std::string("Home"));
+    PB_CHECK(choice_labels(choices).at(1).startsWith("New category"));
+}
+
+PB_TEST(with_no_category_in_use_the_picker_offers_only_the_two_actions) {
+    pbtest::TmpDir data;
+    seed(data, {remote_note(1, "A\nbody", "", 100)});
+    NotesBridge bridge(config_for(data));
+    PB_CHECK_EQ(choice_values(bridge.categoryChoices(QString())).join("|").toStdString(), std::string("none|new"));
+}
+
+PB_TEST(categories_of_notes_not_yet_synced_are_offered_and_those_of_deleted_notes_are_not) {
+    pbtest::TmpDir data;
+    seed(data, {remote_note(1, "A\nbody", "Gone", 100)});
+    NotesBridge bridge(config_for(data));
+    const qlonglong synced = bridge.listNotes().at(0).toMap().value("localId").toLongLong();
+    PB_CHECK(bridge.saveNote(-1, "Fresh", "Fresh\ntext", "Offline only", false) > 0);
+    PB_CHECK(bridge.deleteNote(synced));
+    PB_CHECK_EQ(choice_values(bridge.categoryChoices(QString())).join("|").toStdString(), std::string("none|new|c:Offline only"));
+}
+
+PB_TEST(a_current_choice_nobody_carries_yet_is_listed_once_in_its_sorted_place) {
+    pbtest::TmpDir data;
+    seed(data, {remote_note(1, "A\nbody", "Home", 100), remote_note(2, "B\nbody", "Work", 90)});
+    NotesBridge bridge(config_for(data));
+    PB_CHECK_EQ(choice_values(bridge.categoryChoices("Travel")).join("|").toStdString(), std::string("none|new|c:Home|c:Travel|c:Work"));
+    PB_CHECK_EQ(choice_values(bridge.categoryChoices("Home")).join("|").toStdString(), std::string("none|new|c:Home|c:Work"));   // not twice
+}
+
+PB_TEST(a_category_called_none_or_new_cannot_be_mistaken_for_an_action) {
+    pbtest::TmpDir data;
+    seed(data, {remote_note(1, "A\nbody", "none", 100), remote_note(2, "B\nbody", "new", 90)});
+    NotesBridge bridge(config_for(data));
+    PB_CHECK_EQ(choice_values(bridge.categoryChoices(QString())).join("|").toStdString(), std::string("none|new|c:new|c:none"));
+}
+
+PB_TEST(with_many_categories_the_two_actions_stay_first) {
+    pbtest::TmpDir data;
+    std::vector<pbnotes::ApiNote> notes;
+    for (int i = 0; i < 60; ++i) notes.push_back(remote_note(i + 1, "N" + std::to_string(i) + "\nbody", "Cat " + std::to_string(100 + i), 100 + i));
+    seed(data, notes);
+    NotesBridge bridge(config_for(data));
+    const QStringList values = choice_values(bridge.categoryChoices(QString()));
+    PB_CHECK_EQ(values.size(), 62);
+    PB_CHECK_EQ(values.at(0).toStdString(), std::string("none"));
+    PB_CHECK_EQ(values.at(1).toStdString(), std::string("new"));
+}
+
+PB_TEST(a_category_chosen_but_not_saved_is_not_offered_to_other_notes) {
+    pbtest::TmpDir data;
+    seed(data, {remote_note(1, "A\nbody", "Home", 100)});
+    NotesBridge bridge(config_for(data));
+    // the editor of note 1 has "Draft" as its current choice; it is listed there only
+    PB_CHECK(choice_values(bridge.categoryChoices("Draft")).contains("c:Draft"));
+    PB_CHECK(!choice_values(bridge.categoryChoices(QString())).contains("c:Draft"));
+    // once a note carrying it is saved it is offered everywhere
+    PB_CHECK(bridge.saveNote(-1, "Trip", "Trip\ntext", "Draft", false) > 0);
+    PB_CHECK(choice_values(bridge.categoryChoices(QString())).contains("c:Draft"));
+}
+
+// ---- spec 004: defining a new category from the picker ---------------------------------------------------------------
+
+PB_TEST(a_typed_category_name_is_trimmed_and_accepted) {
+    pbtest::TmpDir data;
+    NotesBridge bridge(config_for(data));
+    const QVariantMap r = bridge.checkCategory("  Travel  ");
+    PB_CHECK(r.value("ok").toBool());
+    PB_CHECK_EQ(r.value("name").toString().toStdString(), std::string("Travel"));
+    PB_CHECK(r.value("errorText").toString().isEmpty());
+}
+
+PB_TEST(an_empty_category_name_is_refused_with_a_sentence) {
+    pbtest::TmpDir data;
+    NotesBridge bridge(config_for(data));
+    for (const char* name : {"", "   ", "\t"}) {
+        const QVariantMap r = bridge.checkCategory(name);
+        PB_CHECK(!r.value("ok").toBool());
+        PB_CHECK_EQ(r.value("errorText").toString().toStdString(), std::string("Enter a category name."));
+    }
+}
+
+PB_TEST(the_length_limit_is_255_characters) {
+    pbtest::TmpDir data;
+    NotesBridge bridge(config_for(data));
+    PB_CHECK(bridge.checkCategory(QString(255, QLatin1Char('a'))).value("ok").toBool());
+    const QVariantMap r = bridge.checkCategory(QString(256, QLatin1Char('a')));
+    PB_CHECK(!r.value("ok").toBool());
+    PB_CHECK_EQ(r.value("errorText").toString().toStdString(), std::string("The category is too long (at most 255 characters)."));
+    PB_CHECK(bridge.checkCategory(QString(255, QChar(0x00E4))).value("ok").toBool());   // characters, not bytes
+}
+
+PB_TEST(control_characters_in_a_category_name_are_refused) {
+    pbtest::TmpDir data;
+    NotesBridge bridge(config_for(data));
+    const QVariantMap r = bridge.checkCategory(QString("a") + QChar(0x01) + QString("b"));
+    PB_CHECK(!r.value("ok").toBool());
+    PB_CHECK_EQ(r.value("errorText").toString().toStdString(), std::string("The category contains characters that are not allowed."));
+    PB_CHECK(!bridge.checkCategory(QString("a\nb")).value("ok").toBool());
+}
+
+PB_TEST(a_slash_stays_one_flat_name_and_case_is_significant) {
+    pbtest::TmpDir data;
+    seed(data, {remote_note(1, "A\nbody", "Work", 100)});
+    NotesBridge bridge(config_for(data));
+    const QVariantMap slash = bridge.checkCategory("Work/Projects");
+    PB_CHECK(slash.value("ok").toBool());
+    PB_CHECK_EQ(slash.value("name").toString().toStdString(), std::string("Work/Projects"));
+    const QVariantMap lower = bridge.checkCategory("work");
+    PB_CHECK(lower.value("ok").toBool());
+    PB_CHECK_EQ(lower.value("name").toString().toStdString(), std::string("work"));   // not merged with "Work"
+}
+
+PB_TEST(a_name_equal_to_an_existing_category_comes_back_as_that_exact_name) {
+    pbtest::TmpDir data;
+    seed(data, {remote_note(1, "A\nbody", "Work", 100)});
+    NotesBridge bridge(config_for(data));
+    const QVariantMap r = bridge.checkCategory(" Work ");
+    PB_CHECK(r.value("ok").toBool());
+    PB_CHECK_EQ(r.value("name").toString().toStdString(), std::string("Work"));
+    // assigning it creates no second spelling
+    PB_CHECK(bridge.saveNote(-1, "Another", "text", r.value("name").toString(), false) > 0);
+    PB_CHECK_EQ(bridge.categories().size(), 1);
+}
+
+PB_TEST(checking_a_name_stores_nothing) {
+    pbtest::TmpDir data;
+    NotesBridge bridge(config_for(data));
+    bridge.checkCategory("Travel");
+    PB_CHECK(bridge.categories().isEmpty());
+    PB_CHECK(!choice_values(bridge.categoryChoices(QString())).contains("c:Travel"));
 }
 
 PB_TEST(favorite_can_be_toggled_and_toggles_back) {
@@ -489,7 +714,7 @@ PB_TEST(deleting_removes_an_unsynced_note_and_hides_a_synced_one_until_the_serve
     seed(data, {remote_note(1, "Synced note\nbody", "", 100)});
     NotesBridge bridge(config_for(data));
     const qlonglong synced = bridge.listNotes().at(0).toMap().value("localId").toLongLong();
-    const qlonglong fresh = bridge.saveNote(-1, "Only on the reader\nbody", "", false);
+    const qlonglong fresh = bridge.saveNote(-1, "Only on the reader", "Only on the reader\nbody", "", false);
     PB_CHECK_EQ(bridge.listNotes().size(), 2);
     PB_CHECK(bridge.deleteNote(fresh));
     PB_CHECK_EQ(bridge.listNotes().size(), 1);
@@ -532,7 +757,7 @@ PB_TEST(a_sync_with_a_conflict_signals_it_and_keeps_both_versions) {
         auto store = pbnotes::NoteStore::open(data.file("pbnotes.db"));
         const auto note = store->get_by_remote_id(7);
         PB_CHECK(note.has_value());
-        PB_CHECK(store->save_local(note->local_id, "Plan\nlocal text", "", false, 1700000100).error == pbnotes::EditError::None);
+        PB_CHECK(store->save_local(note->local_id, pbnotes::derive_title("Plan\nlocal text"), "Plan\nlocal text", "", false, 1700000100).error == pbnotes::EditError::None);
     }
     NotesBridge bridge(config_for(data));
     PB_CHECK(bridge.saveAccount(QString::fromStdString(server.url("/")), "alice", "pw"));

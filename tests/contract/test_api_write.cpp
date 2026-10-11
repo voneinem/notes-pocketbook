@@ -23,6 +23,7 @@ std::string fixture(const std::string& name) {
 ApiClient::Credentials creds() { return {"https://cloud.example.com", "alice", "app-password"}; }
 NoteDraft draft() {
     NoteDraft d;
+    d.title = "Created offline";
     d.content = "Created offline\nwith \"quotes\" and ümläuts\n";
     d.category = "Work";
     d.favorite = true;
@@ -31,7 +32,7 @@ NoteDraft draft() {
 }
 }  // namespace
 
-PB_TEST(create_posts_content_category_favorite_and_modified_but_no_title) {
+PB_TEST(create_posts_title_content_category_favorite_and_modified) {
     FakeTransport t;
     t.expect("POST", "/notes", FakeTransport::ok(fixture("note_created.unverified.json")));
     ApiClient api(t, creds());
@@ -43,12 +44,12 @@ PB_TEST(create_posts_content_category_favorite_and_modified_but_no_title) {
     PB_CHECK_EQ(pbnotes::header_value(req.headers, "Content-Type"), std::string("application/json"));
     auto body = pbnotes::json::parse(req.body);
     PB_CHECK(body.has_value());
-    PB_CHECK_EQ(body->object.size(), static_cast<size_t>(4));  // exactly these four members
+    PB_CHECK_EQ(body->object.size(), static_cast<size_t>(5));  // exactly these five members (spec 004: the title is sent)
+    PB_CHECK_EQ(body->get_string("title").value_or(""), std::string("Created offline"));
     PB_CHECK_EQ(body->get_string("content").value_or(""), draft().content);
     PB_CHECK_EQ(body->get_string("category").value_or(""), std::string("Work"));
     PB_CHECK(body->get_bool("favorite").value_or(false));
     PB_CHECK_EQ(body->get_int("modified").value_or(0), static_cast<int64_t>(1700001000));
-    PB_CHECK(body->find("title") == nullptr);  // the title is never sent
     PB_CHECK(!pbnotes::has_header(req.headers, "If-Match"));
 }
 
@@ -73,8 +74,47 @@ PB_TEST(update_sends_the_stored_etag_in_if_match) {
     PB_CHECK_EQ(req.method, std::string("PUT"));
     PB_CHECK_EQ(req.url, std::string("https://cloud.example.com/index.php/apps/notes/api/v1/notes/5"));
     PB_CHECK_EQ(pbnotes::header_value(req.headers, "If-Match"), std::string("\"stored-etag\""));
-    PB_CHECK(pbnotes::json::parse(req.body)->find("title") == nullptr);
+    PB_CHECK_EQ(pbnotes::json::parse(req.body)->get_string("title").value_or("?"), std::string("Created offline"));
     PB_CHECK_EQ(r.note->etag, std::string("u2000002"));
+}
+
+PB_TEST(the_title_is_escaped_like_any_other_text) {
+    FakeTransport t;
+    t.expect("POST", "/notes", FakeTransport::ok(fixture("note_created.unverified.json")));
+    t.expect("PUT", "/notes/5", FakeTransport::ok(fixture("note_updated.unverified.json")));
+    ApiClient api(t, creds());
+    NoteDraft d = draft();
+    d.title = "Say \"hi\" \\ back/slash \xF0\x9F\x98\x80 \xC3\xBCber";
+    api.create_note(d);
+    api.update_note(5, d, "e");
+    for (const auto& req : t.requests()) {
+        auto body = pbnotes::json::parse(req.body);
+        PB_CHECK(body.has_value());
+        PB_CHECK_EQ(body->get_string("title").value_or("?"), d.title);
+    }
+}
+
+PB_TEST(an_update_that_changes_only_category_or_favorite_still_sends_the_title) {
+    FakeTransport t;
+    t.expect("PUT", "/notes/5", FakeTransport::ok(fixture("note_updated.unverified.json")));
+    ApiClient api(t, creds());
+    NoteDraft d = draft();
+    d.category = "Elsewhere";
+    d.favorite = false;
+    api.update_note(5, d, "e");
+    auto body = pbnotes::json::parse(t.requests().at(0).body);
+    PB_CHECK_EQ(body->get_string("title").value_or("?"), std::string("Created offline"));
+    PB_CHECK_EQ(body->object.size(), static_cast<size_t>(5));
+}
+
+PB_TEST(a_title_the_server_adjusted_comes_back_as_the_servers_title) {
+    FakeTransport t;
+    t.expect("POST", "/notes", FakeTransport::ok(fixture("note_created_adjusted_title.unverified.json")));
+    ApiClient api(t, creds());
+    auto r = api.create_note(draft());
+    PB_CHECK(r.note.has_value());
+    PB_CHECK_EQ(r.note->server_title, std::string("Created offline (2)"));
+    PB_CHECK_EQ(r.note->id, static_cast<int64_t>(102));
 }
 
 PB_TEST(update_flags_precondition_failed_and_gone) {

@@ -19,6 +19,7 @@ pbnotes::ApiNote server_version(const std::string& content = "Plan\nthe server's
     n.id = 7;
     n.etag = "server-v2";
     n.content = content;
+    n.server_title = "Plan";
     n.category = "Work";
     n.favorite = true;
     n.modified = 900;
@@ -32,7 +33,7 @@ int64_t make_conflicting_note(NoteStore& store) {
     v1.modified = 100;
     store.apply_remote({v1});
     const int64_t id = store.get_by_remote_id(7)->local_id;
-    store.save_local(id, kLocal, "Home", false, 500);
+    store.save_local(id, pbnotes::derive_title(kLocal), kLocal, "Home", false, 500);
     return id;
 }
 
@@ -65,8 +66,8 @@ PB_TEST(success_leaves_the_server_version_as_original_and_the_local_text_as_a_pe
     PB_CHECK(!copy->etag.has_value());
     PB_CHECK_EQ(copy->category, std::string("Home"));
     PB_CHECK(!copy->favorite);
-    // identical to the local text apart from the marker on the title line
-    PB_CHECK_EQ(copy->content, std::string("Plan (conflict 2026-10-10)\nmy careful local edit\nsecond line\n"));
+    // the local text, byte for byte; the marker is in the title (spec 004)
+    PB_CHECK_EQ(copy->content, std::string(kLocal));
     PB_CHECK_EQ(copy->title, std::string("Plan (conflict 2026-10-10)"));
 }
 
@@ -75,6 +76,7 @@ PB_TEST(identical_versions_need_no_copy_and_just_become_void) {
     auto store = NoteStore::open(d.file("db"));
     const int64_t id = make_conflicting_note(*store);
     pbnotes::ApiNote same = server_version(kLocal);
+    same.server_title = "Plan";
     same.category = "Home";
     same.favorite = false;
     auto res = store->resolve_conflict(id, same, kDay);
@@ -137,10 +139,28 @@ PB_TEST(an_edit_made_before_the_transaction_ends_up_in_the_copy) {
     auto store = NoteStore::open(d.file("db"));
     const int64_t id = make_conflicting_note(*store);
     // the user keeps typing between the GET of the server version and the transaction
-    store->save_local(id, "Plan\ntyped just now\n", "Home", false, 600);
+    store->save_local(id, pbnotes::derive_title("Plan\ntyped just now\n"), "Plan\ntyped just now\n", "Home", false, 600);
     auto res = store->resolve_conflict(id, server_version(), kDay);
     PB_CHECK(res.created_copy);
-    PB_CHECK_EQ(store->get(res.copy_local_id)->content, std::string("Plan (conflict 2026-10-10)\ntyped just now\n"));
+    PB_CHECK_EQ(store->get(res.copy_local_id)->content, std::string("Plan\ntyped just now\n"));
+    PB_CHECK_EQ(store->get(res.copy_local_id)->title, std::string("Plan (conflict 2026-10-10)"));
+}
+
+PB_TEST(a_copy_that_cannot_be_verified_rolls_back_with_its_title_and_text) {
+    // every injected failure keeps the local TITLE as well as the text in at least one row
+    for (int fail_at = 1; fail_at <= 20; ++fail_at) {
+        pbtest::TmpDir d;
+        auto store = NoteStore::open(d.file("db"));
+        const int64_t id = make_conflicting_note(*store);
+        store->save_local(id, "My own title", kLocal, "Home", false, 550);
+        store->test_fail_nth_write(fail_at);
+        store->resolve_conflict(id, server_version(), kDay);
+        store->test_fail_nth_write(0);
+        bool title_kept = false;
+        for (const auto& s : store->list())
+            if (store->get(s.local_id)->title.rfind("My own title", 0) == 0) title_kept = true;
+        PB_CHECK(title_kept);
+    }
 }
 
 PB_TEST(conflicts_only_apply_to_pending_edited_notes) {

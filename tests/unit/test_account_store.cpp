@@ -7,6 +7,7 @@
 
 #include "pbnotes/log.h"
 #include "pbnotes/note_store.h"
+#include "pbnotes/title.h"
 #include "test_support.h"
 #include "tmp_dir.h"
 
@@ -165,7 +166,7 @@ PB_TEST(reset_local_data_removes_synced_notes_but_refuses_while_changes_are_pend
     PB_CHECK(store->list().empty());
 
     store->apply_remote({n});
-    store->create_local("Not yet synced\nbody", "", false, 10);
+    store->create_local(pbnotes::derive_title("Not yet synced\nbody"), "Not yet synced\nbody", "", false, 10);
     PB_CHECK(!store->reset_local_data());             // a pending note would be lost: refused
     PB_CHECK_EQ(store->list().size(), static_cast<size_t>(2));   // nothing was deleted
 

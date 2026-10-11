@@ -91,7 +91,7 @@ ApiNote server_note(int64_t id, const std::string& content) {
 
 }  // namespace
 
-PB_TEST(the_schema_version_is_two) { PB_CHECK_EQ(NoteStore::kSchemaVersion, 2); }
+PB_TEST(the_schema_version_is_at_least_two) { PB_CHECK(NoteStore::kSchemaVersion >= 2); }
 
 PB_TEST(a_version_one_database_opens_as_version_two_with_its_data_intact) {
     pbtest::TmpDir d;
@@ -100,7 +100,7 @@ PB_TEST(a_version_one_database_opens_as_version_two_with_its_data_intact) {
         std::string error;
         auto store = NoteStore::open(d.file("pbnotes.db"), &error);
         PB_CHECK(store != nullptr);
-        PB_CHECK_EQ(store->schema_version(), 2);
+        PB_CHECK_EQ(store->schema_version(), NoteStore::kSchemaVersion);
         auto account = store->get_account();
         PB_CHECK(account.has_value());
         PB_CHECK_EQ(account->username, std::string("alice"));
@@ -149,16 +149,16 @@ PB_TEST(a_failing_migration_leaves_the_original_database_untouched) {
 
 PB_TEST(a_newer_database_is_refused) {
     pbtest::TmpDir d;
-    make_db(d.file("pbnotes.db"), kV1Schema, 3);
+    make_db(d.file("pbnotes.db"), kV1Schema, NoteStore::kSchemaVersion + 1);
     std::string error;
     PB_CHECK(NoteStore::open(d.file("pbnotes.db"), &error) == nullptr);
     PB_CHECK(error.find("newer") != std::string::npos);
-    PB_CHECK_EQ(user_version(d.file("pbnotes.db")), 3);
+    PB_CHECK_EQ(user_version(d.file("pbnotes.db")), NoteStore::kSchemaVersion + 1);
 }
 
-PB_TEST(a_fresh_database_is_version_two_with_the_attachments_table) {
+PB_TEST(a_fresh_database_has_the_current_version_and_the_attachments_table) {
     pbtest::TmpDir d;
-    { auto store = NoteStore::open(d.file("pbnotes.db")); PB_CHECK(store != nullptr); PB_CHECK_EQ(store->schema_version(), 2); }
+    { auto store = NoteStore::open(d.file("pbnotes.db")); PB_CHECK(store != nullptr); PB_CHECK_EQ(store->schema_version(), NoteStore::kSchemaVersion); }
     PB_CHECK_EQ(count_rows(d.file("pbnotes.db"), "attachments"), 0);
 }
 

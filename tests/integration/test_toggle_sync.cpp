@@ -4,6 +4,7 @@
 #include "fake_notes_server.h"
 #include "fake_transport.h"
 #include "pbnotes/note_store.h"
+#include "pbnotes/title.h"
 #include "pbnotes/sync_engine.h"
 #include "test_support.h"
 #include "tmp_dir.h"
@@ -50,7 +51,7 @@ PB_TEST(toggling_a_checkbox_is_saved_as_an_edit_and_synced) {
 PB_TEST(toggling_something_that_is_not_a_task_changes_nothing) {
     pbtest::TmpDir dir;
     auto store = pbnotes::NoteStore::open(dir.file("db"));
-    auto id = store->create_local("Plain note\nno tasks here", "", false, 1000).local_id;
+    auto id = store->create_local(pbnotes::derive_title("Plain note\nno tasks here"), "Plain note\nno tasks here", "", false, 1000).local_id;
     auto r = store->toggle_task(id, 1, 2000);
     PB_CHECK(r.error == pbnotes::EditError::None);
     PB_CHECK_EQ(store->get(id)->modified, static_cast<int64_t>(1000));

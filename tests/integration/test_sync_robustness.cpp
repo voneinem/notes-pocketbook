@@ -49,9 +49,9 @@ struct Env {
     // Baseline sync plus one new, one edited and one deleted note.
     void prepare() {
         run();
-        new_id = store->create_local(kNewText, "Work", false, 2000).local_id;
+        new_id = store->create_local(pbnotes::derive_title(kNewText), kNewText, "Work", false, 2000).local_id;
         edit_id = store->get_by_remote_id(1)->local_id;
-        store->save_local(edit_id, kEditText, "Home", false, 2100);
+        store->save_local(edit_id, pbnotes::derive_title(kEditText), kEditText, "Home", false, 2100);
         delete_id = store->get_by_remote_id(2)->local_id;
         store->mark_deleted(delete_id);
     }
@@ -139,13 +139,13 @@ PB_TEST(a_note_edited_while_its_put_is_in_flight_stays_pending) {
     Env e;
     e.run();
     auto id = e.store->get_by_remote_id(1)->local_id;
-    e.store->save_local(id, "First note\nsent text", "Home", false, 2100);
+    e.store->save_local(id, pbnotes::derive_title("First note\nsent text"), "First note\nsent text", "Home", false, 2100);
     bool edited_midflight = false;
     e.transport.set_handler([&](const pbnotes::Request& req) {
         auto resp = e.server.handle(req);
         if (req.method == "PUT" && !edited_midflight) {
             edited_midflight = true;
-            e.store->save_local(id, "First note\ntyped while syncing", "Home", false, 2200);  // the user keeps typing
+            e.store->save_local(id, pbnotes::derive_title("First note\ntyped while syncing"), "First note\ntyped while syncing", "Home", false, 2200);  // the user keeps typing
         }
         return resp;
     });
@@ -166,13 +166,13 @@ PB_TEST(a_note_edited_while_its_put_is_in_flight_stays_pending) {
 PB_TEST(a_note_edited_while_its_post_is_in_flight_keeps_the_newer_text_and_gets_its_identity) {
     Env e;
     e.run();
-    auto id = e.store->create_local("Fresh\nsent text", "", false, 2000).local_id;
+    auto id = e.store->create_local(pbnotes::derive_title("Fresh\nsent text"), "Fresh\nsent text", "", false, 2000).local_id;
     bool edited_midflight = false;
     e.transport.set_handler([&](const pbnotes::Request& req) {
         auto resp = e.server.handle(req);
         if (req.method == "POST" && !edited_midflight) {
             edited_midflight = true;
-            e.store->save_local(id, "Fresh\ntyped while syncing", "", false, 2200);
+            e.store->save_local(id, pbnotes::derive_title("Fresh\ntyped while syncing"), "Fresh\ntyped while syncing", "", false, 2200);
         }
         return resp;
     });

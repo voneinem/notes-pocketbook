@@ -5,6 +5,7 @@
 #include <vector>
 
 #include "pbnotes/note_store.h"
+#include "pbnotes/title.h"
 #include "pbnotes/types.h"
 #include "test_support.h"
 #include "tmp_dir.h"
@@ -222,7 +223,7 @@ PB_TEST(a_pull_that_keeps_the_reference_keeps_the_row) {
 PB_TEST(a_local_edit_that_drops_the_reference_keeps_the_row_until_the_next_pull) {
     Env e;
     PB_CHECK(e.store->record_downloaded(e.note, ".attachments.1/a.png", 5, "1.png"));
-    PB_CHECK(e.store->save_local(e.note, "Note\nreference removed locally", "", false, 1000).error == EditError::None);
+    PB_CHECK(e.store->save_local(e.note, pbnotes::derive_title("Note\nreference removed locally"), "Note\nreference removed locally", "", false, 1000).error == EditError::None);
     // the user may undo the edit: nothing is deleted by an edit
     PB_CHECK(e.store->attachment_for(e.note, ".attachments.1/a.png").has_value());
 }

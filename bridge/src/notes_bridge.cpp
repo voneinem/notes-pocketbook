@@ -1,6 +1,7 @@
 #include "notes_bridge.h"
 #include "reader_blocks.h"
 
+#include <algorithm>
 #include <cstdio>
 #include <ctime>
 #include <cstring>
@@ -15,6 +16,7 @@
 #include "pbnotes/paging.h"
 #include "pbnotes/sync_engine.h"
 #include "pbnotes/sync_status.h"
+#include "pbnotes/title.h"
 #include "pbnotes/curl_transport.h"
 #include "pbnotes/log.h"
 
@@ -43,6 +45,11 @@ QString text_for(const QString& key) {
         {"account_exists", "Another account is already set up. Forget it first."},
         {"storage_error", "The notes could not be saved. The storage may be full."},
         {"content_empty", "The note is empty. Write something before saving."},
+        {"title_empty", "The note needs a title."},
+        {"title_too_long", "The title is too long (at most 255 characters)."},
+        {"title_control_chars", "The title contains characters that are not allowed."},
+        {"title_invalid", "The title contains characters that are not allowed."},
+        {"category_empty", "Enter a category name."},
         {"category_too_long", "The category is too long (at most 255 characters)."},
         {"category_spaces", "The category must not start or end with a space."},
         {"category_control_chars", "The category contains characters that are not allowed."},
@@ -235,13 +242,11 @@ bool NotesBridge::forgetAccount() {
 
 namespace {
 
-// The stored title is the first line as written; a Markdown heading marker ("## Plan") is not shown.
+// The title as the user entered it (spec 004); only a legacy row without any title gets a placeholder, so a
+// list row is never blank.
 QString display_title(const std::string& title) {
-    QString t = QString::fromStdString(title);
-    int i = 0;
-    while (i < t.size() && i < 6 && t.at(i) == QLatin1Char('#')) ++i;
-    if (i > 0 && i < t.size() && t.at(i).isSpace()) t = t.mid(i).trimmed();
-    if (t.trimmed().isEmpty()) return QStringLiteral("(empty note)");  // never an empty row title
+    const QString t = QString::fromStdString(title);
+    if (t.trimmed().isEmpty()) return QStringLiteral("(untitled)");
     return t;
 }
 
@@ -269,6 +274,45 @@ QVariantList NotesBridge::categories() const {
         row.insert(QStringLiteral("count"), c.count);
         out.append(row);
     }
+    return out;
+}
+
+QVariantList NotesBridge::categoryChoices(const QString& current) const {
+    auto choice = [](const QString& label, const QString& value) {
+        QVariantMap m;
+        m.insert(QStringLiteral("label"), label);
+        m.insert(QStringLiteral("value"), value);
+        return m;
+    };
+    QVariantList out;
+    out.append(choice(tr("No category"), QStringLiteral("none")));
+    out.append(choice(tr("New category…"), QStringLiteral("new")));
+    if (!store_) return out;
+    std::vector<std::string> names;
+    for (const pbnotes::CategoryCount& c : store_->categories()) names.push_back(c.name);
+    const std::string cur = current.toStdString();
+    if (!cur.empty() && std::find(names.begin(), names.end(), cur) == names.end()) names.push_back(cur);
+    std::sort(names.begin(), names.end(), [](const std::string& a, const std::string& b) {
+        const std::string fa = pbnotes::fold_case(a), fb = pbnotes::fold_case(b);
+        return fa != fb ? fa < fb : a < b;
+    });
+    for (const std::string& n : names) {
+        const QString name = QString::fromStdString(n);
+        out.append(choice(name, QStringLiteral("c:") + name));
+    }
+    return out;
+}
+
+QVariantMap NotesBridge::checkCategory(const QString& name) const {
+    std::string trimmed = name.toStdString();
+    const char* blanks = " \t\r\n\f\v";
+    const size_t b = trimmed.find_first_not_of(blanks);
+    trimmed = b == std::string::npos ? std::string() : trimmed.substr(b, trimmed.find_last_not_of(blanks) - b + 1);
+    QVariantMap out;
+    out.insert(QStringLiteral("name"), QString::fromStdString(trimmed));
+    const std::string error = trimmed.empty() ? std::string("category_empty") : pbnotes::validate_category(trimmed);
+    out.insert(QStringLiteral("ok"), error.empty());
+    out.insert(QStringLiteral("errorText"), error.empty() ? QString() : text_for(QString::fromStdString(error)));
     return out;
 }
 
@@ -461,6 +505,7 @@ QVariantMap NotesBridge::loadForEdit(qlonglong localId) const {
     if (!store_) return out;
     const auto note = store_->get(localId);
     if (!note || note->status == pbnotes::NoteStatus::Deleted) return out;
+    out.insert(QStringLiteral("title"), QString::fromStdString(note->title));
     out.insert(QStringLiteral("text"), QString::fromStdString(note->content));
     out.insert(QStringLiteral("category"), QString::fromStdString(note->category));
     out.insert(QStringLiteral("favorite"), note->favorite);
@@ -483,11 +528,12 @@ static bool finish_edit(NotesBridge* bridge, const pbnotes::EditResult& r) {
     return false;
 }
 
-qlonglong NotesBridge::saveNote(qlonglong localId, const QString& text, const QString& category, bool favorite) {
+qlonglong NotesBridge::saveNote(qlonglong localId, const QString& title, const QString& text, const QString& category,
+                                bool favorite) {
     if (!store_) return -1;
-    const std::string content = text.toStdString(), cat = category.toStdString();
-    const pbnotes::EditResult r = localId > 0 ? store_->save_local(localId, content, cat, favorite, now_seconds())
-                                              : store_->create_local(content, cat, favorite, now_seconds());
+    const std::string ttl = title.toStdString(), content = text.toStdString(), cat = category.toStdString();
+    const pbnotes::EditResult r = localId > 0 ? store_->save_local(localId, ttl, content, cat, favorite, now_seconds())
+                                              : store_->create_local(ttl, content, cat, favorite, now_seconds());
     if (!finish_edit(this, r)) return -1;
     emit noteChanged(r.local_id);
     emit notesChanged();

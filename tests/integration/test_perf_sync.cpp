@@ -6,6 +6,7 @@
 #include "fake_notes_server.h"
 #include "fake_transport.h"
 #include "pbnotes/note_store.h"
+#include "pbnotes/title.h"
 #include "pbnotes/sync_engine.h"
 #include "test_support.h"
 #include "tmp_dir.h"
@@ -33,7 +34,7 @@ PB_TEST(syncing_a_thousand_notes_with_few_changes_is_quick) {
     PB_CHECK_EQ(first.counts.pulled, 1000);
 
     // a few changes on each side
-    for (int i : {10, 20, 30}) store->save_local(store->get_by_remote_id(i)->local_id, "Note " + std::to_string(i) + "\nedited here", "", false, 2000 + i);
+    for (int i : {10, 20, 30}) store->save_local(store->get_by_remote_id(i)->local_id, pbnotes::derive_title("Note " + std::to_string(i) + "\nedited here"), "Note " + std::to_string(i) + "\nedited here", "", false, 2000 + i);
     for (int i : {40, 50}) server.edit_on_server(i, "Note " + std::to_string(i) + "\nedited there");
 
     const auto t1 = std::chrono::steady_clock::now();

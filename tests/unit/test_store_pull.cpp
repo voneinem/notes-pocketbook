@@ -100,7 +100,7 @@ PB_TEST(a_synced_note_shows_the_server_title_and_falls_back_to_its_first_line) {
     PB_CHECK_EQ(titles[2], std::string("Sample Product Guide"));
 }
 
-PB_TEST(a_local_edit_shows_the_first_line_until_the_server_confirms) {
+PB_TEST(a_local_edit_shows_the_title_the_user_entered_until_the_server_confirms) {
     pbtest::TmpDir d;
     auto store = NoteStore::open(d.file("pbnotes.db"));
     ApiNote n = api_note(1, "Old first line\nbody");
@@ -108,13 +108,42 @@ PB_TEST(a_local_edit_shows_the_first_line_until_the_server_confirms) {
     store->apply_remote({n});
     const int64_t id = store->list()[0].local_id;
     PB_CHECK_EQ(store->get(id)->title, std::string("Server file name"));
-    PB_CHECK(store->save_local(id, "New first line\nbody", "", false, 200).error == pbnotes::EditError::None);
-    PB_CHECK_EQ(store->get(id)->title, std::string("New first line"));
-    // a pull must not touch the edited note
+    PB_CHECK(store->save_local(id, "My own title", "New first line\nbody", "", false, 200).error == pbnotes::EditError::None);
+    PB_CHECK_EQ(store->get(id)->title, std::string("My own title"));   // not the first line (spec 004)
+    // a pull must not touch the edited note, not even when the server's title changes
     ApiNote again = n;
     again.etag = "e2";
+    again.server_title = "Renamed on the server";
     store->apply_remote({again});
-    PB_CHECK_EQ(store->get(id)->title, std::string("New first line"));
+    PB_CHECK_EQ(store->get(id)->title, std::string("My own title"));
+    PB_CHECK_EQ(store->get(id)->content, std::string("New first line\nbody"));
+}
+
+PB_TEST(a_changed_server_title_reaches_a_note_without_local_changes) {
+    pbtest::TmpDir d;
+    auto store = NoteStore::open(d.file("pbnotes.db"));
+    ApiNote n = api_note(1, "Body line\nmore");
+    n.server_title = "First name";
+    store->apply_remote({n});
+    ApiNote renamed = n;
+    renamed.etag = "e2";
+    renamed.server_title = "Second name";
+    auto r = store->apply_remote({renamed});
+    PB_CHECK_EQ(r.updated, 1);
+    PB_CHECK_EQ(store->get_by_remote_id(1)->title, std::string("Second name"));
+    PB_CHECK_EQ(store->get_by_remote_id(1)->content, std::string("Body line\nmore"));
+}
+
+PB_TEST(the_excerpt_of_a_pulled_note_keeps_a_first_line_that_is_not_the_title) {
+    pbtest::TmpDir d;
+    auto store = NoteStore::open(d.file("pbnotes.db"));
+    ApiNote renamed = api_note(1, "C:\\Windows>cmd\nbody");
+    renamed.server_title = "Disk Encryption Setup";
+    ApiNote same = api_note(2, "Plain title\nbody");
+    same.server_title = "Plain title";
+    store->apply_remote({renamed, same});
+    PB_CHECK_EQ(store->get_by_remote_id(1)->excerpt, std::string("C:\\Windows>cmd body"));   // FR-023: nothing dropped
+    PB_CHECK_EQ(store->get_by_remote_id(2)->excerpt, std::string("body"));                  // a repeated title is left out
 }
 
 PB_TEST(titles_stored_by_an_older_version_are_refreshed_by_one_full_pull) {

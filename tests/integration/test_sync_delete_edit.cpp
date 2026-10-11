@@ -6,6 +6,7 @@
 #include "fake_notes_server.h"
 #include "fake_transport.h"
 #include "pbnotes/note_store.h"
+#include "pbnotes/title.h"
 #include "pbnotes/sync_engine.h"
 #include "test_support.h"
 #include "tmp_dir.h"
@@ -49,7 +50,7 @@ struct Env {
 PB_TEST(edited_locally_but_deleted_on_the_server_is_recreated) {
     Env e;
     const int64_t id = e.local_of(1);
-    e.store->save_local(id, "First note\nedited after the remote delete", "", false, 2000);
+    e.store->save_local(id, pbnotes::derive_title("First note\nedited after the remote delete"), "First note\nedited after the remote delete", "", false, 2000);
     e.server.notes.erase(1);
     auto r = e.run();
     PB_CHECK(r.outcome == SyncOutcome::Success);
@@ -140,7 +141,7 @@ PB_TEST(a_restored_note_can_be_edited_and_synced_again) {
     e.store->mark_deleted(id);
     e.server.edit_on_server(2, "Second note\nsomeone improved this");
     e.run();
-    PB_CHECK(e.store->save_local(id, "Second note\nmy follow-up", "", false, 3000).error == pbnotes::EditError::None);
+    PB_CHECK(e.store->save_local(id, pbnotes::derive_title("Second note\nmy follow-up"), "Second note\nmy follow-up", "", false, 3000).error == pbnotes::EditError::None);
     auto r = e.run();
     PB_CHECK(r.outcome == SyncOutcome::Success);
     PB_CHECK_EQ(e.server.notes.at(2).content, std::string("Second note\nmy follow-up"));

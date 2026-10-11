@@ -3,6 +3,7 @@
 #include <string>
 
 #include "pbnotes/note_store.h"
+#include "pbnotes/title.h"
 #include "test_support.h"
 #include "tmp_dir.h"
 
@@ -44,13 +45,13 @@ PB_TEST(invalid_utf8_is_rejected) {
 PB_TEST(an_invalid_category_keeps_the_previous_value) {
     pbtest::TmpDir d;
     auto store = NoteStore::open(d.file("db"));
-    auto id = store->create_local("Note\nbody", "Work", false, 1000).local_id;
+    auto id = store->create_local(pbnotes::derive_title("Note\nbody"), "Note\nbody", "Work", false, 1000).local_id;
     auto r = store->set_category(id, " bad ", 1100);
     PB_CHECK(r.error == EditError::InvalidCategory);
     PB_CHECK_EQ(r.error_key, std::string("category_spaces"));
     PB_CHECK_EQ(store->get(id)->category, std::string("Work"));
     PB_CHECK_EQ(store->get(id)->modified, static_cast<int64_t>(1000));
-    auto r2 = store->create_local("Another", std::string(300, 'x'), false, 1200);
+    auto r2 = store->create_local(pbnotes::derive_title("Another"), "Another", std::string(300, 'x'), false, 1200);
     PB_CHECK(r2.error == EditError::InvalidCategory);
     PB_CHECK_EQ(store->list().size(), static_cast<size_t>(1));  // the invalid create stored nothing
 }
@@ -58,7 +59,7 @@ PB_TEST(an_invalid_category_keeps_the_previous_value) {
 PB_TEST(slash_categories_work_end_to_end) {
     pbtest::TmpDir d;
     auto store = NoteStore::open(d.file("db"));
-    auto id = store->create_local("Note\nbody", "Work/Projects", false, 1000).local_id;
+    auto id = store->create_local(pbnotes::derive_title("Note\nbody"), "Note\nbody", "Work/Projects", false, 1000).local_id;
     PB_CHECK_EQ(store->get(id)->category, std::string("Work/Projects"));
 }
 

@@ -125,7 +125,7 @@ PB_TEST(saving_a_note_with_the_token_makes_the_attachment_pending_and_the_editor
     Env e;
     const QVariantMap m = e.stage(e.make("a.png", "DATA"));
     const QString token = s(m, "token");
-    const qlonglong note = e.notes->saveNote(-1, QStringLiteral("Title\n") + token + QStringLiteral("\n"), QString(), false);
+    const qlonglong note = e.notes->saveNote(-1, QStringLiteral("Title"), QStringLiteral("Title\n") + token + QStringLiteral("\n"), QString(), false);
     PB_CHECK(note > 0);
     auto row = e.notes->store()->get_attachment(m.value("id").toLongLong());
     PB_CHECK(row->state == pbnotes::AttachmentState::Pending);
@@ -147,7 +147,7 @@ PB_TEST(a_pending_attachment_shows_in_the_reader_as_pending_with_a_local_image) 
     Env e;
     const QVariantMap img = e.stage(e.make("a.png", "DATA"));
     const QVariantMap doc = e.stage(e.make("d.pdf", "DOC"));
-    const qlonglong note = e.notes->saveNote(-1, QStringLiteral("Title\n") + s(img, "token") + QStringLiteral("\n") + s(doc, "token"), QString(), false);
+    const qlonglong note = e.notes->saveNote(-1, QStringLiteral("Title"), QStringLiteral("Title\n") + s(img, "token") + QStringLiteral("\n") + s(doc, "token"), QString(), false);
     const QVariantList blocks = e.notes->openNote(note).value("blocks").toList();
     QVariantMap image_block, file_block;
     for (const QVariant& v : blocks) {
@@ -166,8 +166,8 @@ PB_TEST(a_pending_attachment_shows_in_the_reader_as_pending_with_a_local_image) 
 PB_TEST(a_token_whose_row_belongs_to_another_note_is_not_shown_as_an_attachment_of_this_one) {
     Env e;
     const QVariantMap m = e.stage(e.make("a.png", "DATA"));
-    const qlonglong first = e.notes->saveNote(-1, QStringLiteral("One\n") + s(m, "token"), QString(), false);
-    const qlonglong other = e.notes->saveNote(-1, QStringLiteral("Two\n") + s(m, "token"), QString(), false);
+    const qlonglong first = e.notes->saveNote(-1, QStringLiteral("One"), QStringLiteral("One\n") + s(m, "token"), QString(), false);
+    const qlonglong other = e.notes->saveNote(-1, QStringLiteral("Two"), QStringLiteral("Two\n") + s(m, "token"), QString(), false);
     PB_CHECK(first > 0 && other > 0);
     bool found_pending = false;
     for (const QVariant& v : e.notes->openNote(other).value("blocks").toList())

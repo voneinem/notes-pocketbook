@@ -103,12 +103,14 @@ public:
     Q_INVOKABLE double pageTarget(double contentY, double viewHeight, double contentHeight, double step,
                                   int direction, const QVariantList& unsplittable) const;
     // ---- editing (all offline; every change stays pending until a sync sends it) ----------------
-    // {text, category, favorite} for the editor; empty map if the note is unknown or deleted.
+    // {title, text, category, favorite} for the editor (the title as stored, not display-processed); empty map if
+    // the note is unknown or deleted.
     Q_INVOKABLE QVariantMap loadForEdit(qlonglong localId) const;
-    // Explicit save. localId <= 0 creates a new note (empty text is rejected). Returns the note's local
-    // id, or -1 after emitting errorOccurred() (content_empty, category_*, storage_error, not_found);
-    // a failed save leaves the previous version untouched.
-    Q_INVOKABLE qlonglong saveNote(qlonglong localId, const QString& text, const QString& category, bool favorite);
+    // Explicit save of the title the user entered and the text. localId <= 0 creates a new note (empty text is
+    // rejected). Returns the note's local id, or -1 after emitting errorOccurred() (title_*, content_empty,
+    // category_*, storage_error, not_found); a failed save leaves the previous version untouched.
+    Q_INVOKABLE qlonglong saveNote(qlonglong localId, const QString& title, const QString& text, const QString& category,
+                                   bool favorite);
     // After the UI asked for confirmation. A note that never reached the server disappears at once; a
     // synced note is hidden until the server delete succeeds.
     Q_INVOKABLE bool deleteNote(qlonglong localId);
@@ -128,6 +130,14 @@ public:
     QString sortOrder() const;
     QString searchText() const { return searchText_; }
     QVariantList categories() const;
+    // The category picker's list for ChoiceDialog: [{label, value}] = "No category" (value "none"), "New category..."
+    // (value "new"), then one entry per category of any note on the reader, value "c:" + name, in the store's
+    // case-insensitive order. `current` (the editor's choice, possibly not saved yet) is always listed, once.
+    Q_INVOKABLE QVariantList categoryChoices(const QString& current) const;
+    // Judges a category name typed in "New category...": trims ASCII whitespace, refuses an empty name and
+    // anything validate_category refuses. {ok, name (trimmed), errorText ("" when ok)}. Stores nothing; an
+    // exact match with an existing category is simply that name (assigning it creates no second spelling).
+    Q_INVOKABLE QVariantMap checkCategory(const QString& name) const;
     Q_INVOKABLE void setView(const QString& view);
     Q_INVOKABLE void setSortOrder(const QString& order);
     Q_INVOKABLE void setSearch(const QString& text);

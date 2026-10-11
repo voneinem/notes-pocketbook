@@ -25,13 +25,21 @@ struct NoteSummary {
     bool pending = false;  // has local changes the server has not confirmed yet
 };
 
-enum class EditError { None, EmptyContent, InvalidCategory, NotFound, StorageError };
+enum class EditError { None, EmptyContent, InvalidTitle, InvalidCategory, NotFound, StorageError };
 
 struct EditResult {
     EditError error = EditError::None;
     int64_t local_id = 0;
-    std::string error_key;  // content_empty | category_* | not_found | storage_error (empty on success)
+    std::string error_key;  // content_empty | title_* | category_* | not_found | storage_error (empty on success)
 };
+
+// Title rules (spec 004, data-model.md): trimmed of leading and trailing ASCII whitespace (trim_title), then
+// non-empty, valid UTF-8, no control characters (U+0000-U+001F, U+007F), at most 255 characters (code points).
+// validate_title takes the title as typed and returns "" if it is valid after trimming, else title_empty |
+// title_too_long | title_control_chars | title_invalid (checked in the order invalid UTF-8, control
+// characters, length).
+std::string trim_title(const std::string& title);
+std::string validate_title(const std::string& title);
 
 // Category rules (data-model.md): at most 255 characters, no leading or trailing space, no control
 // characters (U+0000-U+001F, U+007F), valid UTF-8; "/" is allowed and the empty string means
@@ -69,7 +77,7 @@ struct PullApplyResult {
 
 class NoteStore {
 public:
-    static constexpr int kSchemaVersion = 2;
+    static constexpr int kSchemaVersion = 3;
 
     struct OpenOptions {
         // Test hook: called after the pre-migration backup was written, with the backup path;
@@ -136,7 +144,8 @@ public:
     //  - known, status `edited`/`deleted`: left untouched (local changes win until pushed);
     //  - `void` notes with a remote id that are absent from the listing: removed;
     //    pending notes and notes that never reached the server are kept.
-    // The title is always derived from the content; the server's title is not stored.
+    // A note in sync shows the server's title (title_for); the first line of the text is only the fallback for a
+    // server note that has none. Local edits keep the title the user entered.
     // True if stored synced notes may carry a title that is not the server's (stored by an older
     // version, or a note with neither text nor title): the next sync then pulls the full list once
     // and calls mark_titles_refreshed() afterwards.
@@ -145,16 +154,19 @@ public:
     PullApplyResult apply_remote(const std::vector<ApiNote>& listing);
 
     // ---- local edits (work offline; every change leaves the note pending until pushed) ------------
-    // create_local: content must contain more than whitespace (nothing is stored otherwise).
-    // save_local / set_favorite / set_category: mark the note `edited` with a fresh modified time and
-    // recompute title and excerpt; saving identical values changes nothing. Whitespace-only content
-    // is rejected, as is an invalid category (the previous value stays). A failed write leaves the
-    // previous version untouched and reports StorageError.
+    // create_local / save_local take the title the user entered (spec 004): it is trimmed and validated
+    // (validate_title) and stored as typed, never derived from the text. Checks run in the order title, content
+    // (must contain more than whitespace), category; the first failure is returned and nothing is stored, so
+    // the previous version stays. A new note with neither title nor text is `content_empty`.
+    // save_local / set_favorite / set_category: mark the note `edited` with a fresh modified time and recompute
+    // the preview; saving identical values changes nothing. set_favorite, set_category and toggle_task keep the
+    // stored title. A failed write leaves the previous version untouched and reports StorageError.
     // mark_deleted: a note that never reached the server disappears at once; a synced note is
     // kept as a hidden tombstone (`deleted`) until the server delete succeeds.
-    EditResult create_local(const std::string& content, const std::string& category, bool favorite, int64_t now);
-    EditResult save_local(int64_t local_id, const std::string& content, const std::string& category, bool favorite,
-                          int64_t now);
+    EditResult create_local(const std::string& title, const std::string& content, const std::string& category,
+                            bool favorite, int64_t now);
+    EditResult save_local(int64_t local_id, const std::string& title, const std::string& content,
+                          const std::string& category, bool favorite, int64_t now);
     EditResult set_favorite(int64_t local_id, bool favorite, int64_t now);
     EditResult set_category(int64_t local_id, const std::string& category, int64_t now);
     EditResult mark_deleted(int64_t local_id);
@@ -174,7 +186,7 @@ public:
     std::vector<Note> pending_notes() const;
     // What was sent to the server for a note.
     struct PushSnapshot {
-        std::string content, category;
+        std::string title, content, category;
         bool favorite = false;
     };
     // Stores the server's answer to a successful POST/PUT in one transaction. The remote id (after a
@@ -261,7 +273,8 @@ public:
 
 private:
     NoteStore() = default;
-    EditResult update_locked(int64_t local_id, const std::optional<std::string>& content,
+    EditResult update_locked(int64_t local_id, const std::optional<std::string>& title,
+                             const std::optional<std::string>& content,
                              const std::optional<std::string>& category, const std::optional<bool>& favorite,
                              int64_t now);
 

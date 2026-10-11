@@ -43,9 +43,10 @@ struct NoteResult {
     std::string detail;
 };
 
-// What a client sends when creating or updating a note. The title is never sent: the server derives
-// it from the first line of the content.
+// What a client sends when creating or updating a note. The title is always sent (spec 004): it is the title the
+// user entered, so the server never derives one from the text.
 struct NoteDraft {
+    std::string title;
     std::string content;
     std::string category;
     bool favorite = false;

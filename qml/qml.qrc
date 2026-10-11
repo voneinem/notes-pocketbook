@@ -8,6 +8,7 @@
         <file>AttachmentView.qml</file>
         <file>ConfirmDialog.qml</file>
         <file>ChoiceDialog.qml</file>
+        <file>TextEntryDialog.qml</file>
         <file>pages/SetupPage.qml</file>
         <file>pages/NoteListPage.qml</file>
         <file>pages/ReaderPage.qml</file>

@@ -44,13 +44,40 @@ std::string derive_title(std::string_view text) {
     return std::string(trim(text.substr(b, e - b)));
 }
 
-std::string make_excerpt(std::string_view text, std::size_t max_chars) {
+std::string strip_heading_marker(std::string_view line) {
+    const std::string_view t = trim(line);
+    size_t hashes = 0;
+    while (hashes < t.size() && t[hashes] == '#') ++hashes;
+    if (hashes >= 1 && hashes <= 6 && hashes < t.size() && (t[hashes] == ' ' || t[hashes] == '\t'))
+        return std::string(trim(t.substr(hashes)));
+    return std::string(t);
+}
+
+std::string legacy_title(std::string_view stored) {
+    std::string t = strip_heading_marker(stored);
+    for (char& c : t)
+        if (static_cast<unsigned char>(c) < 0x20 || c == 0x7F) c = ' ';
+    // cut after 255 code points, never inside a multi-byte sequence
+    size_t chars = 0, cut = t.size();
+    for (size_t i = 0; i < t.size(); ++i) {
+        if ((static_cast<unsigned char>(t[i]) & 0xC0) == 0x80) continue;
+        if (chars == 255) { cut = i; break; }
+        ++chars;
+    }
+    t.resize(cut);
+    t = std::string(trim(t));
+    return t.empty() ? std::string("Untitled") : t;
+}
+
+std::string make_excerpt(std::string_view text, std::string_view title, std::size_t max_chars) {
     size_t b, e, n;
     if (!first_nonempty_line(text, &b, &e, &n)) return std::string();
+    const bool repeats_title =
+        !title.empty() && strip_heading_marker(text.substr(b, e - b)) == strip_heading_marker(title);
     std::string out;
     size_t chars = 0;  // code points
     bool pending_space = false;
-    size_t i = n;
+    size_t i = repeats_title ? n : 0;
     while (i < text.size()) {
         const char c = text[i];
         if (is_space(c) || c == '\n') {
@@ -150,20 +177,6 @@ std::string conflict_suffix(int64_t epoch_seconds, int number) {
     std::string s = std::string(" (conflict ") + date;
     if (number > 1) s += " #" + std::to_string(number);
     return s + ")";
-}
-
-std::string with_title_suffix(std::string_view content, const std::string& suffix) {
-    size_t b, e, n;
-    if (!first_nonempty_line(content, &b, &e, &n)) return std::string(content);
-    size_t end = e;                       // end of the line, before the line break
-    const bool cr = end > b && content[end - 1] == '\r';
-    if (cr) --end;
-    while (end > b && (content[end - 1] == ' ' || content[end - 1] == '\t')) --end;
-    std::string out(content.substr(0, end));
-    out += suffix;
-    if (cr) out += '\r';
-    out.append(content.substr(e));
-    return out;
 }
 
 }  // namespace pbnotes

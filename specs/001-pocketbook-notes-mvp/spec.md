@@ -19,7 +19,8 @@
   option? → A: No. Not in the MVP; connections to servers with unverifiable certificates are
   always refused.
 - Q: Is a note's title the first line of its text, or a separate title field? → A: The first
-  non-empty line of the text; there is no separate title field.
+  non-empty line of the text; there is no separate title field. (**Superseded by feature 004:** the
+  title is a separate field the reader enters; it is never derived from the text.)
 - Q: Is a conflict copy uploaded to the server like any other new note? → A: Yes. It is uploaded
   and syncs like any other note.
 - Q: May users extend the trusted certificate authorities with their own CA file (for a private
@@ -309,6 +310,8 @@ expected notes each time.
   show the title the server reports for it (the title the web and Android apps show); if the server
   reports none, or the note has no text and no server title, the first line (or "(empty note)")
   is shown. The editor has no separate title field and the app never sends a title.
+  (**Superseded by feature 004, `specs/004-title-category-picker/spec.md`:** the editor has a Title
+  field, the stored title is what the reader entered, and it is sent with every write.)
 - **FR-020**: The system MUST NOT store a new note that is empty or whitespace-only.
 
 **Offline behavior**
@@ -419,7 +422,8 @@ expected notes each time.
   certificate. How users copy the file onto the device is to be confirmed and documented in the
   install guide.
 - The note title is normally the first non-empty line of the text, matching how the server names notes; for notes in sync the title the server reports is shown (it can differ after renames);
-  there is no separate title field in the editor (confirmed in clarification).
+  there is no separate title field in the editor (confirmed in clarification; **superseded by
+  feature 004**, which adds an explicit title field).
 - A "conflict" is defined as a note changed on the device and also changed on the server since the
   device last synchronized it. The server's version stays as the original note and the device's
   version becomes the conflict copy (confirmed in clarification), so the server remains the shared
