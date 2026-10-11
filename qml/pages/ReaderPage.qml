@@ -2,8 +2,11 @@ import QtQuick
 import QtQuick.Controls
 import ".."
 
-// Reads one note: headings, bold/italic, lists and task boxes (read-only here), links that open in the
-// system browser (after a prompt showing the real address when the link text differs from it). Large type, font size small/medium/large, scrolling by page buttons and edge taps.
+// Reads one note: its title, then headings, bold/italic, lists and task boxes (read-only here), links that open in the
+// system browser (after a prompt showing the real address when the link text differs from it). Text can be selected
+// (a long press selects a word and shows two markers to drag and a bubble with Copy and Select all) and Copy puts the
+// note's source text for the range on the clipboard (spec 005).
+// Large type, font size small/medium/large, scrolling by page buttons and edge taps.
 Item {
     id: page
     property int noteId: 0
@@ -11,11 +14,177 @@ Item {
 
     property string message: ""
 
-    function load() { note = bridge.openNote(noteId) }
+    function load() {
+        clearSelection()   // a reload ends the selection (spec 005 FR-030)
+        note = bridge.openNote(noteId)
+    }
+
+    // ---- selecting and copying (spec 005) ----
+    // The selection runs over units: the title (when the note has one), then one unit per block. A text unit takes a
+    // character range (UTF-16 offsets); a table row, an attachment and a blank line are selected whole.
+    property var selection: null     // {fromUnit, fromOffset, toUnit, toOffset}, from <= to; null = none
+    property real lastClearMs: 0
+    readonly property int titleUnits: note.hasTitle === true ? 1 : 0
+    readonly property int unitCount: titleUnits + (note.blocks ? note.blocks.length : 0)
+
+    function unitItem(u) {
+        if (u < titleUnits) return titleBlock
+        var l = blocks.itemAt(u - titleUnits)
+        return l ? l.item : null
+    }
+    function unitIsText(u) {
+        if (u < titleUnits) return true
+        var k = note.blocks[u - titleUnits].kind
+        return k !== "tablerow" && k !== "attachment" && k !== "blank"
+    }
+    function unitLength(u) {
+        var it = unitItem(u)
+        return (it && unitIsText(u)) ? it.textLength : 0
+    }
+    function before(ua, oa, ub, ob) { return ua < ub || (ua === ub && oa < ob) }
+
+    function applySelection() {
+        for (var u = 0; u < unitCount; ++u) {
+            var it = unitItem(u)
+            if (!it) continue
+            var a = -1, b = -1, whole = false
+            if (selection && u >= selection.fromUnit && u <= selection.toUnit) {
+                if (unitIsText(u)) {
+                    a = (u === selection.fromUnit) ? selection.fromOffset : 0
+                    b = (u === selection.toUnit) ? selection.toOffset : it.textLength
+                } else {
+                    whole = true
+                }
+            }
+            if (unitIsText(u)) { it.selFrom = a; it.selTo = b }
+            else it.selected = whole
+        }
+    }
+    function setSelection(sel) { selection = sel; applySelection() }
+    function clearSelection() {
+        if (selection) lastClearMs = Date.now()
+        selection = null
+        applySelection()
+        if (menu) menu.close()
+    }
+    // A tap on a link, a task box or an attachment while a selection exists only ends the selection (US4-7). The
+    // unit's own tap handler may have cleared it a moment earlier, so a clear in the last 300 ms counts as well.
+    function selectionTapGuard() {
+        if (selection) { clearSelection(); return true }
+        return Date.now() - lastClearMs < 300
+    }
+    function inSelection(u, pos) {
+        return selection && !before(u, pos, selection.fromUnit, selection.fromOffset)
+                         && !before(selection.toUnit, selection.toOffset, u, pos)
+    }
+    // A long press: on a word it selects the word; on a table row, an attachment or a blank line the whole unit.
+    function wordHeld(u, start, end) {
+        if (!unitIsText(u)) { unitHeld(u); return }
+        setSelection({ fromUnit: u, fromOffset: start, toUnit: u, toOffset: end })
+        openMenu()
+    }
+    function unitHeld(u) {
+        setSelection({ fromUnit: u, fromOffset: 0, toUnit: u, toOffset: 0 })
+        openMenu()
+    }
+    // A tap on a unit (pos = the tapped character; 0 for a whole unit): a tap outside the selection ends it.
+    function unitTapped(u, pos) {
+        if (selection && !inSelection(u, pos)) clearSelection()
+    }
+    function selectAll() {
+        if (unitCount === 0) return
+        var last = unitCount - 1
+        setSelection({ fromUnit: 0, fromOffset: 0, toUnit: last, toOffset: unitLength(last) })
+    }
+    function copySelection() {
+        if (!selection) return
+        var text = bridge.readerCopy(noteId, selection.fromUnit, selection.fromOffset, selection.toUnit, selection.toOffset)
+        if (text.length > 0) clipboard.copy(text)
+    }
+    Connections {
+        target: bridge
+        function onFontSizeChanged() { page.clearSelection() }
+    }
+
+    // ---- the markers and the menu (positions are in the content of the page's flickable) ----
+    // The point a selection edge is at: x, the bottom of its line and the line's height.
+    function pointOf(u, offset, atEnd) {
+        var it = unitItem(u)
+        if (!it) return null
+        var content = flick.contentItem
+        if (unitIsText(u)) {
+            var r = it.rectAt(offset)
+            var p = it.mapToItem(content, r.x, r.y)
+            return { x: p.x, y: p.y + r.height, h: r.height }
+        }
+        var q = it.mapToItem(content, atEnd ? it.width : 0, atEnd ? it.height - 10 : 0)
+        return { x: q.x, y: atEnd ? q.y : q.y + 30, h: 30 }
+    }
+    readonly property var startPoint: selection ? pointOf(selection.fromUnit, selection.fromOffset, false) : null
+    readonly property var endPoint: selection ? pointOf(selection.toUnit, selection.toOffset, true) : null
+
+    function unitAtY(y) {
+        var best = 0
+        for (var u = 0; u < unitCount; ++u) {
+            var it = unitItem(u)
+            if (!it) continue
+            if (it.mapToItem(flick.contentItem, 0, 0).y <= y) best = u
+        }
+        return best
+    }
+    // A marker was dragged to (x, y) in the flickable's content: move that edge of the selection there.
+    function moveHandle(isStart, x, y) {
+        if (!selection) return
+        var u = unitAtY(y)
+        var it = unitItem(u)
+        if (!it) return
+        var off = 0
+        if (unitIsText(u)) {
+            var p = flick.contentItem.mapToItem(it, x, y)
+            off = it.offsetAt(p.x, p.y)
+        }
+        if (isStart) {
+            if (before(u, off, selection.toUnit, selection.toOffset))
+                setSelection({ fromUnit: u, fromOffset: off, toUnit: selection.toUnit, toOffset: selection.toOffset })
+        } else if (before(selection.fromUnit, selection.fromOffset, u, off)) {
+            setSelection({ fromUnit: selection.fromUnit, fromOffset: selection.fromOffset, toUnit: u, toOffset: off })
+        }
+    }
+    function menuItems() {
+        var list = [{ id: "copy", label: qsTr("Copy") }]
+        var last = unitCount - 1
+        var all = selection && selection.fromUnit === 0 && selection.fromOffset === 0 && selection.toUnit === last
+                  && selection.toOffset >= unitLength(last)
+        if (!all) list.push({ id: "all", label: qsTr("Select all") })
+        return list
+    }
+    function placeMenu() {
+        if (!selection || !startPoint || !endPoint) return
+        var a = flick.contentItem.mapToItem(page, startPoint.x, startPoint.y - startPoint.h)
+        var b = flick.contentItem.mapToItem(page, endPoint.x, endPoint.y)
+        menu.anchorX = (a.x + b.x) / 2
+        menu.selTop = a.y
+        menu.selBottom = b.y
+        menu.minY = rule.y + rule.height + 10
+        menu.maxY = footer.y
+        menu.place()
+    }
+    function openMenu() {
+        if (!selection) return
+        menu.items = menuItems()
+        placeMenu()
+        menu.visible = true
+    }
+    function menuChosen(id) {
+        menu.close()
+        if (id === "copy") { copySelection(); clearSelection() }
+        else if (id === "all") { selectAll(); openMenu() }
+    }
 
     // A tapped link: `link` is "l<N>", an index into the block's links list ({url, confirm}).
     property string pendingUrl: ""
     function followLink(block, link) {
+        if (selectionTapGuard()) return
         var n = parseInt(String(link).substring(1))
         var target = block.links && block.links[n]
         if (!target) return
@@ -62,6 +231,7 @@ Item {
     // "Download" is a deliberate request: if Wi-Fi is off, ask the reader to connect first (like "Sync now").
     property string wifiWaitPath: ""
     function downloadAttachment(remotePath) {
+        if (selectionTapGuard()) return
         if (wifiWaitPath !== "") return
         message = ""
         if (device.wifiConnected()) { attachments.download(noteId, remotePath); return }
@@ -84,6 +254,12 @@ Item {
     Component.onCompleted: { load(); attachments.probeSizes(noteId) }
     // Returning from the picture page (or any page): reload, keeping the reading position.
     StackView.onActivated: { var y = flick.contentY; load(); flick.contentY = y }
+
+    // empty space (below the text, beside the buttons): a tap there ends a selection
+    MouseArea {
+        anchors.fill: parent
+        onClicked: page.clearSelection()
+    }
 
     Row {
         id: top
@@ -131,12 +307,27 @@ Item {
             width: flick.width - 100
             spacing: 0  // blocks bring their own gap; table rows touch
 
+            // The title (spec 005): above the first block, scrolls and pages with the text; none, and no gap, for a
+            // note without a title.
+            TitleBlock {
+                id: titleBlock
+                objectName: "titleBlock"
+                onWordHeld: function(start, end) { page.wordHeld(0, start, end) }
+                onTapped: function(pos) { page.unitTapped(0, pos) }
+                visible: page.note.hasTitle === true
+                height: visible ? implicitHeight : 0
+                width: body.width
+                title: page.note.titleText || ""
+                fontPx: bridge.fontPx
+            }
+
             Repeater {
                 id: blocks
                 model: page.note.blocks
                 delegate: Loader {
                     id: ld
                     readonly property var b: modelData
+                    readonly property int unit: index + page.titleUnits
                     width: body.width
                     sourceComponent: b.kind === "tablerow" ? tableRow : (b.kind === "attachment" ? attachmentBlock : textBlock)
                     Component {
@@ -146,7 +337,10 @@ Item {
                             block: ld.b
                             fontPx: bridge.fontPx
                             onLinkActivated: function(link) { page.followLink(ld.b, link) }
+                            onWordHeld: function(start, end) { page.wordHeld(ld.unit, start, end) }
+                            onTapped: function(pos) { page.unitTapped(ld.unit, pos) }
                             onTaskToggled: function(line) {
+                                if (page.selectionTapGuard()) return
                                 var y = flick.contentY
                                 if (bridge.toggleTask(page.noteId, line)) { page.load(); flick.contentY = y }
                             }
@@ -160,9 +354,20 @@ Item {
                             fontPx: bridge.fontPx
                             waiting: page.wifiWaitPath !== "" && page.wifiWaitPath === ld.b.remotePath
                             onDownloadRequested: page.downloadAttachment(ld.b.remotePath)
-                            onOpenRequested: attachments.openAttachment(ld.b.attachmentId)
-                            onImageTapped: page.StackView.view.push(Qt.resolvedUrl("ImagePage.qml"), { attachmentId: ld.b.attachmentId })
+                            onOpenRequested: { if (!page.selectionTapGuard()) attachments.openAttachment(ld.b.attachmentId) }
+                            onImageTapped: { if (!page.selectionTapGuard()) page.StackView.view.push(Qt.resolvedUrl("ImagePage.qml"), { attachmentId: ld.b.attachmentId }) }
                         }
+                    }
+                    // a table row, an attachment and a blank line are selected whole: a long press selects it, a tap
+                    // outside the selection ends it (the loaded item sits above and keeps its own buttons and links)
+                    MouseArea {
+                        anchors.fill: parent
+                        enabled: !page.unitIsText(ld.unit)
+                        pressAndHoldInterval: 600
+                        property bool held: false
+                        onPressed: held = false
+                        onPressAndHold: { held = true; page.unitHeld(ld.unit) }
+                        onClicked: if (!held) page.unitTapped(ld.unit, 0)
                     }
                     Component {
                         id: tableRow
@@ -176,6 +381,27 @@ Item {
                 }
             }
         }
+
+        // the selection's markers scroll with the text
+        SelectionHandle {
+            atStart: true
+            visible: page.selection !== null && page.startPoint !== null
+            point: page.startPoint ? Qt.point(page.startPoint.x, page.startPoint.y) : Qt.point(0, 0)
+            lineHeight: page.startPoint ? page.startPoint.h : 40
+            onPressedDown: menu.close()
+            onDragged: function(x, y) { page.moveHandle(true, x, y) }
+            onReleased: page.openMenu()
+        }
+        SelectionHandle {
+            atStart: false
+            visible: page.selection !== null && page.endPoint !== null
+            point: page.endPoint ? Qt.point(page.endPoint.x, page.endPoint.y) : Qt.point(0, 0)
+            lineHeight: page.endPoint ? page.endPoint.h : 40
+            onPressedDown: menu.close()
+            onDragged: function(x, y) { page.moveHandle(false, x, y) }
+            onReleased: page.openMenu()
+        }
+        onContentYChanged: if (menu) menu.close()
 
         // Tap zones at the left and right edge: previous / next page, instantly.
         // (Placed in the viewport, not in the content.)
@@ -213,8 +439,14 @@ Item {
 
     Row {
         id: footer
+        objectName: "footer"
         anchors { bottom: parent.bottom; horizontalCenter: parent.horizontalCenter; bottomMargin: 16 }
         spacing: 24
         PageButtons { id: pager; target: flick; unsplittable: page.unsplittable }
+    }
+
+    SelectionMenu {
+        id: menu
+        onChosen: function(id) { page.menuChosen(id) }
     }
 }

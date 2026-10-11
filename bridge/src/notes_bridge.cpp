@@ -54,6 +54,8 @@ QString text_for(const QString& key) {
         {"category_spaces", "The category must not start or end with a space."},
         {"category_control_chars", "The category contains characters that are not allowed."},
         {"category_invalid", "The category contains characters that are not allowed."},
+        {"paste_invalid", "The copied text cannot be pasted."},
+        {"paste_too_large", "The copied text is too large to paste."},
         {"not_found", "This note no longer exists."},
     };
     for (const auto& t : kTexts)
@@ -363,6 +365,10 @@ QVariantMap NotesBridge::openNote(qlonglong localId) const {
     if (!note || note->status == pbnotes::NoteStatus::Deleted) return out;
     out.insert(QStringLiteral("localId"), localId);
     out.insert(QStringLiteral("title"), display_title(note->title));
+    // The reading page shows the stored title above the text (spec 005); a note without one shows no title block,
+    // never the "(untitled)" placeholder the list uses.
+    out.insert(QStringLiteral("titleText"), QString::fromStdString(note->title));
+    out.insert(QStringLiteral("hasTitle"), !QString::fromStdString(note->title).trimmed().isEmpty());
     out.insert(QStringLiteral("category"), QString::fromStdString(note->category));
     out.insert(QStringLiteral("favorite"), note->favorite);
     out.insert(QStringLiteral("modified"), static_cast<qlonglong>(note->modified));
@@ -499,6 +505,57 @@ void NotesBridge::syncNow() {
 }
 
 // ---- editing ----------------------------------------------------------------------------------
+
+QString NotesBridge::readerCopy(qlonglong localId, int fromUnit, int fromOffset, int toUnit, int toOffset) const {
+    if (!store_) return QString();
+    const auto note = store_->get(localId);
+    if (!note || note->status == pbnotes::NoteStatus::Deleted) return QString();
+    const QString title = QString::fromStdString(note->title);
+    const bool has_title = !title.trimmed().isEmpty();
+    const int offset_units = has_title ? 1 : 0;
+    const QVariantList entries = reader_blocks(*note, store_.get());
+    const std::vector<pbnotes::Block> blocks = pbnotes::parse_markdown(note->content);
+    const int units = offset_units + static_cast<int>(entries.size());
+
+    if (fromUnit > toUnit || (fromUnit == toUnit && fromOffset > toOffset)) {
+        std::swap(fromUnit, toUnit);
+        std::swap(fromOffset, toOffset);
+    }
+    if (fromUnit < 0 || toUnit >= units) return QString();
+
+    // A displayed position of a unit as a core SourcePoint. UTF-16 offsets become byte offsets in the block's text.
+    auto point = [&](int unit, int offset) {
+        pbnotes::SourcePoint p;
+        const QVariantMap entry = entries.at(unit - offset_units).toMap();
+        p.block = static_cast<size_t>(entry.value(QStringLiteral("block")).toInt());
+        p.row = static_cast<size_t>(entry.value(QStringLiteral("row")).toInt());
+        const QString kind = entry.value(QStringLiteral("kind")).toString();
+        if ((kind == QLatin1String("heading") || kind == QLatin1String("paragraph") || kind == QLatin1String("listitem")) &&
+            p.block < blocks.size()) {
+            std::string plain;
+            for (const pbnotes::Span& sp : blocks[p.block].spans) plain += sp.text;
+            const QString text = QString::fromStdString(plain);
+            p.byte = static_cast<size_t>(text.left(qBound(0, offset, static_cast<int>(text.size()))).toUtf8().size());
+        }
+        return p;
+    };
+
+    QString out;
+    int first_text_unit = fromUnit;
+    if (has_title && fromUnit == 0) {
+        const int len = static_cast<int>(title.size());
+        const int a = qBound(0, fromOffset, len);
+        const int b = toUnit == 0 ? qBound(a, toOffset, len) : len;
+        out = title.mid(a, b - a);
+        if (toUnit == 0) return out;
+        out += QLatin1Char('\n');
+        first_text_unit = 1;
+        fromOffset = 0;  // the text part starts at the beginning of the first block
+    }
+    out += QString::fromStdString(
+        pbnotes::copy_source(note->content, blocks, point(first_text_unit, fromOffset), point(toUnit, toOffset)));
+    return out;
+}
 
 QVariantMap NotesBridge::loadForEdit(qlonglong localId) const {
     QVariantMap out;

@@ -27,7 +27,7 @@ endforeach()
 
 # The Qt bridge tests need Qt Core; test_notes_bridge runs real local HTTPS servers like the core TLS tests.
 if(TARGET pbnotes_bridge)
-    foreach(name test_notes_bridge test_reader_blocks test_attachment_image_provider test_attachments_bridge test_about_bridge)
+    foreach(name test_notes_bridge test_reader_blocks test_attachment_image_provider test_attachments_bridge test_about_bridge test_edit_bridge)
         add_executable(${name} bridge/${name}.cpp)
         target_link_libraries(${name} PRIVATE pbnotes_bridge OpenSSL::SSL OpenSSL::Crypto Threads::Threads)
         target_include_directories(${name} PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/support)
@@ -35,6 +35,28 @@ if(TARGET pbnotes_bridge)
         add_test(NAME ${name} COMMAND ${name})
         set_tests_properties(${name} PROPERTIES LABELS "bridge" SKIP_RETURN_CODE 77)
     endforeach()
+endif()
+
+# The real QML pages driven offscreen (spec 005): a driver script per scenario, the page under test and stubs for the
+# bridge objects. Needs Qt Quick on the host; skipped otherwise (and on the device build).
+if(TARGET pbnotes_bridge AND NOT TARGET_TYPE STREQUAL "ARM")
+    find_package(Qt6 QUIET COMPONENTS Qml Quick Test)
+    if(Qt6Qml_FOUND AND Qt6Quick_FOUND AND Qt6Test_FOUND)
+        set(CMAKE_AUTOMOC ON)
+        add_executable(test_qml_pages qml/test_qml_pages.cpp)
+        target_link_libraries(test_qml_pages PRIVATE pbnotes_bridge Qt6::Core Qt6::Gui Qt6::Qml Qt6::Quick Qt6::Test)
+        target_compile_definitions(test_qml_pages PRIVATE
+            PBNOTES_QML_TEST_DIR="${CMAKE_CURRENT_SOURCE_DIR}/qml" PBNOTES_SOURCE_DIR="${CMAKE_SOURCE_DIR}")
+        add_test(NAME qml_editor_flow COMMAND test_qml_pages ${CMAKE_CURRENT_SOURCE_DIR}/qml/editor_flow.qml
+                 ${CMAKE_SOURCE_DIR}/qml/pages/EditorPage.qml)
+        set_tests_properties(qml_editor_flow PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen" LABELS "bridge")
+        add_test(NAME qml_reader_title COMMAND test_qml_pages ${CMAKE_CURRENT_SOURCE_DIR}/qml/reader_title.qml
+                 ${CMAKE_SOURCE_DIR}/qml/pages/ReaderPage.qml)
+        set_tests_properties(qml_reader_title PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen" LABELS "bridge")
+        add_test(NAME qml_reader_select COMMAND test_qml_pages ${CMAKE_CURRENT_SOURCE_DIR}/qml/reader_select.qml
+                 ${CMAKE_SOURCE_DIR}/qml/pages/ReaderPage.qml)
+        set_tests_properties(qml_reader_select PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen" LABELS "bridge")
+    endif()
 endif()
 
 # Mechanical anonymization check of the fixtures, and a self-test proving the checker works.

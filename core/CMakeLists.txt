@@ -16,6 +16,8 @@ set(PBNOTES_CORE_SOURCES
     src/types.cpp
     src/http_transport.cpp
     src/title.cpp
+    src/text_clean.cpp
+    src/edit_history.cpp
     src/utf8.cpp
     src/ca_selector.cpp
     src/log.cpp
@@ -31,6 +33,7 @@ set(PBNOTES_CORE_SOURCES
     src/markdown.cpp
     src/markdown_inline.cpp
     src/markdown_table.cpp
+    src/markdown_copy.cpp
     src/paging.cpp
     src/sync_engine.cpp
     src/sync_attachments.cpp

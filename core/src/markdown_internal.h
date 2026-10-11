@@ -12,18 +12,26 @@ namespace md {
 
 bool is_space(char c);  // ' ' or '\t'
 
+// The source lines without their line ends (a final line break does not create an empty line; a CR before the
+// line break is dropped). The parser and copy_source share it so line indexes agree.
+std::vector<std::string> split_lines(std::string_view text);
+
 // Appends text as a span, merging it into the previous span when kind and link target match.
+// `src` (per byte of `text`) and the element extent [el_begin, el_end) are recorded when given (spec 005); merged
+// spans keep the union of their extents.
 void add_span(std::vector<Span>* spans, Span::Kind kind, const std::string& text,
-              const std::string& url = std::string(), bool link_confirm = false);
+              const std::string& url = std::string(), bool link_confirm = false,
+              const std::vector<int>* src = nullptr, int el_begin = -1, int el_end = -1);
 
-// Inline spans of one line of text (emphasis, links).
-std::vector<Span> inline_spans(const std::string& text);
+// Inline spans of one line of text (emphasis, links). `base` is the offset of `text` inside its source line.
+std::vector<Span> inline_spans(const std::string& text, int base = 0);
 
-// One plain span holding the text exactly as written (code fences).
-std::vector<Span> literal_spans(const std::string& text);
+// One plain span holding the text exactly as written (code fences); `base` as above.
+std::vector<Span> literal_spans(const std::string& text, int base = 0);
 
 // A piece of a line: plain text, or an attachment reference between two texts.
 struct Segment {
+    size_t begin = 0;      // offset of the piece in the split text
     std::string text;      // is_ref == false
     bool is_ref = false;
     AttachmentRef ref;     // is_ref == true

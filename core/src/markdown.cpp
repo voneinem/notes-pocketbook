@@ -1,5 +1,6 @@
 #include "pbnotes/markdown.h"
 
+#include <algorithm>
 #include <cctype>
 
 #include "markdown_internal.h"
@@ -11,7 +12,7 @@ namespace {
 bool is_space(char c) { return md::is_space(c); }
 }  // namespace
 
-namespace {
+namespace md {
 
 // The source lines without their line ends (a final line break does not create an empty line).
 std::vector<std::string> split_lines(std::string_view text) {
@@ -27,6 +28,12 @@ std::vector<std::string> split_lines(std::string_view text) {
     return lines;
 }
 
+}  // namespace md
+
+namespace {
+
+using md::split_lines;
+
 std::string trimmed(const std::string& s) {
     size_t a = 0, b = s.size();
     while (a < b && is_space(s[a])) ++a;
@@ -39,12 +46,16 @@ std::string trimmed(const std::string& s) {
 constexpr size_t kMaxParsedLine = 16384;
 
 // Adds the block(s) of one line of text. `proto` carries the kind and its fields (heading level, list
-// marker, task state); `body` is the text after the marker. An attachment reference ends the text segment:
-// the first text keeps `proto`'s kind, an attachment block follows for every reference, later text
-// becomes paragraphs; all with the line's index.
-void push_text_blocks(std::vector<Block>* blocks, Block proto, const std::string& body) {
+// marker, task state); `body` is the text after the marker, which starts at byte `body_at` of the source
+// line. An attachment reference ends the text segment: the first text keeps `proto`'s kind, an attachment
+// block follows for every reference, later text becomes paragraphs; all with the line's index. Every block
+// records its extent in the line (Block::src_begin/src_end) and every span where its bytes came from.
+void push_text_blocks(std::vector<Block>* blocks, Block proto, const std::string& body, int body_at) {
+    const int at = body_at;
     if (body.size() > kMaxParsedLine) {
-        proto.spans = md::literal_spans(body);
+        proto.spans = md::literal_spans(body, at);
+        proto.src_begin = 0;
+        proto.src_end = at + static_cast<int>(body.size());
         blocks->push_back(std::move(proto));
         return;
     }
@@ -52,20 +63,28 @@ void push_text_blocks(std::vector<Block>* blocks, Block proto, const std::string
     bool any_ref = false;
     for (const auto& seg : segments) any_ref = any_ref || seg.is_ref;
     if (!any_ref) {
-        proto.spans = md::inline_spans(body);
+        proto.spans = md::inline_spans(body, at);
+        proto.src_begin = 0;
+        proto.src_end = at + static_cast<int>(body.size());
         blocks->push_back(std::move(proto));
         return;
     }
     bool first = true;
     for (const md::Segment& seg : segments) {
+        const int seg_at = at + static_cast<int>(seg.begin);
         if (seg.is_ref) {
             if (first && proto.is_task) {  // a task whose text starts with the reference: keep the box
-                blocks->push_back(proto);
+                Block box = proto;
+                box.src_begin = 0;
+                box.src_end = at;
+                blocks->push_back(std::move(box));
             }
             Block a;
             a.kind = BlockKind::Attachment;
             a.line_index = proto.line_index;
             a.attachment = seg.ref;
+            a.src_begin = seg_at;
+            a.src_end = seg_at + static_cast<int>(seg.raw.size());
             blocks->push_back(std::move(a));
         } else if (!trimmed(seg.text).empty()) {
             Block t;
@@ -75,7 +94,12 @@ void push_text_blocks(std::vector<Block>* blocks, Block proto, const std::string
                 t.kind = BlockKind::Paragraph;
                 t.line_index = proto.line_index;
             }
-            t.spans = md::inline_spans(trimmed(seg.text));
+            size_t lead = 0;
+            while (lead < seg.text.size() && is_space(seg.text[lead])) ++lead;
+            const std::string text = trimmed(seg.text);
+            t.spans = md::inline_spans(text, seg_at + static_cast<int>(lead));
+            t.src_begin = first ? 0 : seg_at + static_cast<int>(lead);
+            t.src_end = seg_at + static_cast<int>(lead + text.size());
             blocks->push_back(std::move(t));
         }
         first = false;
@@ -105,12 +129,14 @@ std::vector<Block> parse_markdown(std::string_view text) {
         }
         if (rest.compare(0, 3, "```") == 0) {  // code fence markers and their contents are plain text
             in_fence = !in_fence;
-            b.spans = md::literal_spans(rest);
+            b.spans = md::literal_spans(rest, static_cast<int>(first));
+            b.src_end = static_cast<int>(line.size());
             blocks.push_back(std::move(b));
             continue;
         }
         if (in_fence) {
-            b.spans = md::literal_spans(line);
+            b.spans = md::literal_spans(line, 0);
+            b.src_end = static_cast<int>(line.size());
             blocks.push_back(std::move(b));
             continue;
         }
@@ -121,15 +147,17 @@ std::vector<Block> parse_markdown(std::string_view text) {
         if (hashes >= 1 && hashes <= 6 && hashes < rest.size() && rest[hashes] == ' ' && indent_cols < 4) {
             b.kind = BlockKind::Heading;
             b.level = static_cast<int>(hashes);
-            push_text_blocks(&blocks, std::move(b), rest.substr(hashes + 1));
+            push_text_blocks(&blocks, std::move(b), rest.substr(hashes + 1), static_cast<int>(first + hashes + 1));
             continue;
         }
 
         std::string body;
+        size_t body_at = first;  // where `body` starts in the line
         bool is_list = false;
         if (rest.size() >= 2 && (rest[0] == '-' || rest[0] == '*' || rest[0] == '+') && rest[1] == ' ') {
             is_list = true;
             body = rest.substr(2);
+            body_at += 2;
         } else {
             size_t d = 0;
             while (d < rest.size() && std::isdigit(static_cast<unsigned char>(rest[d]))) ++d;
@@ -138,6 +166,7 @@ std::vector<Block> parse_markdown(std::string_view text) {
                 b.ordered = true;
                 b.number = std::stoi(rest.substr(0, d));
                 body = rest.substr(d + 2);
+                body_at += d + 2;
             }
         }
         if (is_list) {
@@ -147,9 +176,10 @@ std::vector<Block> parse_markdown(std::string_view text) {
                 (body[1] == ' ' || body[1] == 'x' || body[1] == 'X') && (body.size() == 3 || body[3] == ' ')) {
                 b.is_task = true;
                 b.checked = body[1] != ' ';
+                body_at += std::min<size_t>(4, body.size());
                 body = body.size() > 4 ? body.substr(4) : std::string();
             }
-            push_text_blocks(&blocks, std::move(b), body);
+            push_text_blocks(&blocks, std::move(b), body, static_cast<int>(body_at));
             continue;
         }
 
@@ -163,7 +193,7 @@ std::vector<Block> parse_markdown(std::string_view text) {
         }
 
         b.kind = BlockKind::Paragraph;
-        push_text_blocks(&blocks, std::move(b), rest);
+        push_text_blocks(&blocks, std::move(b), rest, static_cast<int>(first));
     }
     return blocks;
 }

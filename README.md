@@ -19,6 +19,11 @@ when you are on Wi-Fi.
 >   and covered by host tests; the on-device checks (browser return, emoji font, image formats, viewer
 >   hand-off, upload against a real server) are listed as manual tasks in
 >   [tasks.md](specs/002-rich-note-content/tasks.md) and not yet recorded.
+> - **Editing tools and the reading page (feature 005):** a long-press menu with draggable selection markers (Cut,
+>   Copy, Paste, Remove, Select all, Undo, Redo) in the editor; the reading page shows the note's title and can select
+>   and copy text the same way. Implemented
+>   and covered by host tests (including the real QML pages driven offscreen); the device checks are open, see
+>   [device-results.md](specs/005-text-editing-reader-title/checklists/device-results.md).
 > - **Tested on the host:** the Qt-free core, the bridge and the QML pages are covered by automated
 >   tests. Run `scripts/pre-merge.sh` to build, run them and check for secrets.
 > - **Not verified:** the Notes API details that need a live server (the fixtures in
@@ -104,6 +109,24 @@ offers it to all notes as soon as a note carrying it is saved. Details: [spec.md
   (a backup is made and removed after the check): notes you edited but had not synced keep the title the
   list showed, and the list previews are recomputed. No note is renamed or recategorized by the upgrade.
   An older build of the app refuses an upgraded database.
+
+### Editing tools and the title in the reader
+
+The editor header only has **Cancel, Save, Favorite, Attach** (and **Delete** for a saved note). The editing tools are
+in a context menu, like the reader's own: **long-press a word** to select it; two black **markers** appear at the ends
+of the selection and can be dragged, and a **bubble** offers *Cut, Copy, Paste, Remove, Select all, Undo, Redo* (only
+those that apply). A long press on empty space below the text offers *Paste, Select all, Undo, Redo*; a short tap just
+places the caret. The menu works on the field you pressed, the title or the text, and never closes the on-screen
+keyboard. Pasting into the title makes one line (255 characters at most). **Undo/Redo** step back and forth over every
+change to the title, the text, the category and the favorite marker; undoing everything clears the "unsaved changes"
+prompt, and the history is not saved. The clipboard lives in the app (and uses the system clipboard where the reader's
+platform offers one); text pasted from outside is cleaned first.
+
+The reading page shows the note's **title** above the text, in bold and larger, and can **select and copy** the same
+way: long-press a word, drag the markers (also across blocks), choose **Copy** in the bubble to put the note's own
+source text on the clipboard (a completely selected heading, bold phrase or link brings its marks, a partly selected one
+does not). The page stays read-only. Details: [spec.md](specs/005-text-editing-reader-title/spec.md),
+[quickstart](specs/005-text-editing-reader-title/quickstart.md).
 
 ## Security notes
 

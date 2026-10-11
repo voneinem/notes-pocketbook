@@ -6,6 +6,10 @@ import ".."
 // "Save" writes the note (offline, it waits for the next sync); leaving with unsaved changes asks first.
 // The title and the category are single lines above the text. The title is what the reader types in its own
 // field; it is never taken from the text. The category is chosen from a list (existing categories, none).
+// Editing tools (spec 005) live in a context menu, like the reader's own: a long press on a word selects it and
+// shows two markers to drag and a bubble with Cut, Copy, Paste, Remove, Select all, Undo and Redo; a long press on
+// empty text offers Paste, Select all, Undo and Redo. The header keeps only Cancel, Save, Favorite, Attach, Delete.
+// Undo and Redo step back and forth over every change to the title, the text, the category and the favorite marker.
 Item {
     id: page
     property int noteId: -1
@@ -16,6 +20,12 @@ Item {
     property bool startFavorite: false
     property bool favorite: false
     property string message: ""
+    property bool historyReady: false   // set once the opened values are in the fields and in editSession
+
+    // ---- selection tools (spec 005) ----
+    property string activeField: "text"
+    readonly property var activeItem: activeField === "title" ? titleField : area
+    readonly property bool hasSelection: activeItem.selectionStart < activeItem.selectionEnd
 
     readonly property bool dirty: titleField.text !== startTitle || area.text !== startText
                                   || category !== startCategory || favorite !== startFavorite
@@ -35,6 +45,8 @@ Item {
         area.text = startText
         category = startCategory
         favorite = startFavorite
+        editSession.reset(titleField.text, area.text, category, favorite)
+        historyReady = true
         if (noteId > 0) {
             area.forceActiveFocus()
             area.cursorPosition = area.length
@@ -43,6 +55,9 @@ Item {
         }
         Qt.inputMethod.show()
     }
+
+    onCategoryChanged: if (historyReady) editSession.observe("category", category)
+    onFavoriteChanged: if (historyReady) editSession.observe("favorite", favorite ? "1" : "")
 
     Connections {
         target: bridge
@@ -105,8 +120,161 @@ Item {
         newCategoryDialog.close()
         area.forceActiveFocus()
     }
+    // ---- selection tools: each acts on the field that has the caret ----
+    function selectAllActive() { activeItem.selectAll() }
+    function copySelection() { if (hasSelection) clipboard.copy(activeItem.selectedText) }
+    function deleteSelection() {
+        var f = activeItem
+        var a = f.selectionStart, b = f.selectionEnd
+        if (a >= b) return
+        editSession.beginGroup(activeField)
+        f.remove(a, b)
+        editSession.endGroup()
+        f.cursorPosition = a
+    }
+    function cutSelection() {
+        if (!hasSelection) return
+        copySelection()
+        deleteSelection()
+    }
+    function pasteIntoActive() {
+        page.message = ""
+        var f = activeItem
+        var a = f.selectionStart, b = f.selectionEnd
+        var r
+        if (activeField === "title") {
+            r = clipboard.titlePaste(titleField.text, a, b)
+            if (!r.ok) { if (r.errorText) page.message = r.errorText; return }
+            editSession.beginGroup("title")
+            titleField.text = r.text
+            editSession.endGroup()
+            titleField.cursorPosition = r.caret
+        } else {
+            r = clipboard.cleanPaste()
+            if (!r.ok) { if (r.errorText) page.message = r.errorText; return }
+            editSession.beginGroup("text")
+            if (a < b) area.remove(a, b)
+            area.insert(a, r.text)
+            editSession.endGroup()
+            area.cursorPosition = a + r.text.length
+        }
+    }
+
+    // ---- touch: a tap places the caret, a long press selects the word and opens the menu ----
+    function fieldPoint(field, item, x, y) {
+        return field === "title" ? item.positionAt(x) : item.positionAt(x, y)
+    }
+    // A tap anywhere that is not the selection ends it: in the text, in the other field, or on empty space.
+    function dismissSelection() {
+        if (menu) menu.close()
+        area.deselect()
+        titleField.deselect()
+    }
+    function fieldClicked(field, item, x, y) {
+        dismissSelection()
+        page.activeField = field
+        item.forceActiveFocus()
+        item.cursorPosition = fieldPoint(field, item, x, y)
+        item.deselect()
+        Qt.inputMethod.show()
+    }
+    function fieldHeld(field, item, x, y) {
+        page.activeField = field
+        item.forceActiveFocus()
+        // below the last line of the text there is no word: the menu then only offers Paste, Select all, Undo, Redo
+        var last = item.positionToRectangle(item.length)
+        if (field === "text" && y > last.y + last.height) {
+            item.cursorPosition = item.length
+            item.deselect()
+        } else {
+            item.cursorPosition = fieldPoint(field, item, x, y)
+            item.selectWord()
+        }
+        openMenu()
+    }
+
+    // ---- the context menu ----
+    function menuItems() {
+        var f = activeItem
+        var sel = f.selectionStart < f.selectionEnd
+        var list = []
+        if (sel) {
+            list.push({ id: "cut", label: qsTr("Cut") })
+            list.push({ id: "copy", label: qsTr("Copy") })
+        }
+        if (clipboard.hasText) list.push({ id: "paste", label: qsTr("Paste") })
+        if (sel) list.push({ id: "remove", label: qsTr("Remove") })
+        if (f.length > 0 && !(sel && f.selectionStart === 0 && f.selectionEnd === f.length))
+            list.push({ id: "all", label: qsTr("Select all") })
+        if (editSession.canUndo) list.push({ id: "undo", label: qsTr("Undo") })
+        if (editSession.canRedo) list.push({ id: "redo", label: qsTr("Redo") })
+        return list
+    }
+    function placeMenu() {
+        var f = activeItem
+        var a = f.positionToRectangle(f.selectionStart)
+        var b = f.positionToRectangle(f.selectionEnd)
+        var pa = f.mapToItem(page, a.x, a.y)
+        var pb = f.mapToItem(page, b.x, b.y + b.height)
+        menu.anchorX = f.selectionStart < f.selectionEnd ? (pa.x + pb.x) / 2 : pa.x
+        menu.selTop = pa.y
+        menu.selBottom = pb.y
+        menu.minY = 20
+        menu.maxY = page.height - page.keyboardHeight
+        menu.place()
+    }
+    function openMenu() {
+        menu.items = menuItems()
+        if (menu.items.length === 0) { menu.close(); return }
+        placeMenu()
+        menu.visible = true
+    }
+    // After an action the selection is gone (Copy leaves the caret where the selection ended); Select all shows the
+    // menu again for the new selection.
+    function menuChosen(id) {
+        menu.close()
+        page.message = ""
+        if (id === "cut") cutSelection()
+        else if (id === "copy") { var end = activeItem.selectionEnd; copySelection(); activeItem.deselect(); activeItem.cursorPosition = end }
+        else if (id === "paste") pasteIntoActive()
+        else if (id === "remove") deleteSelection()
+        else if (id === "all") { selectAllActive(); openMenu() }
+        else if (id === "undo") undoStep()
+        else if (id === "redo") redoStep()
+    }
+
+    // ---- undo / redo: the session says what to apply; the fields are changed with remove/insert ----
+    function applyHistory(step) {
+        if (step.field === "category") page.category = step.value
+        else if (step.field === "favorite") page.favorite = step.value === "1"
+        else {
+            var f = step.field === "title" ? titleField : area
+            f.remove(step.pos, step.pos + step.removeLen)
+            f.insert(step.pos, step.insert)
+            if (!f.activeFocus) f.forceActiveFocus()
+            if (step.selBegin === step.selEnd) f.cursorPosition = step.selBegin
+            else f.select(step.selBegin, step.selEnd)
+        }
+        editSession.finishApply(titleField.text, area.text)
+    }
+    function undoStep() {
+        page.message = ""
+        var s = editSession.undo()
+        if (s.field) applyHistory(s)
+    }
+    function redoStep() {
+        page.message = ""
+        var s = editSession.redo()
+        if (s.field) applyHistory(s)
+    }
     function requestLeave() {
         if (dirty) { Qt.inputMethod.hide(); discardDialog.open() } else leave()
+    }
+
+    // empty space (between and beside the controls): a tap there ends a selection; everything above it keeps its own taps
+    MouseArea {
+        anchors.fill: parent
+        onClicked: page.dismissSelection()
     }
 
     Column {
@@ -147,6 +315,24 @@ Item {
                 // a title is one line: Return moves on to the text, it never inserts a line break
                 Keys.onReturnPressed: area.forceActiveFocus()
                 Keys.onEnterPressed: area.forceActiveFocus()
+                persistentSelection: false
+                onTextChanged: { if (menu) menu.close(); if (page.historyReady) editSession.observe("title", text) }
+                onActiveFocusChanged: { if (activeFocus) page.activeField = "title"; else deselect() }
+                MouseArea {
+                    anchors.fill: parent
+                    pressAndHoldInterval: 600
+                    property bool held: false
+                    onPressed: held = false
+                    onPressAndHold: function(mouse) { held = true; page.fieldHeld("title", titleField, mouse.x, mouse.y) }
+                    onClicked: function(mouse) { if (!held) page.fieldClicked("title", titleField, mouse.x, mouse.y) }
+                }
+                SelectionHandles {
+                    target: titleField
+                    multiline: false
+                    active: page.activeField === "title"
+                    onDraggingChanged: if (dragging) menu.close()
+                    onFinished: page.openMenu()
+                }
             }
         }
         Row {
@@ -194,6 +380,7 @@ Item {
         clip: true
         boundsBehavior: Flickable.StopAtBounds
         // keep the caret in view while typing (no animation)
+        onContentYChanged: if (menu && menu.visible) page.placeMenu()
         function ensureCaretVisible() {
             var r = area.cursorRectangle
             if (r.y < contentY) contentY = r.y
@@ -210,6 +397,24 @@ Item {
             inputMethodHints: Qt.ImhNoPredictiveText
             background: null
             onCursorRectangleChanged: flick.ensureCaretVisible()
+            persistentSelection: false
+            onTextChanged: { if (menu) menu.close(); if (page.historyReady) editSession.observe("text", text) }
+            onActiveFocusChanged: { if (activeFocus) page.activeField = "text"; else deselect() }
+            MouseArea {
+                anchors.fill: parent
+                pressAndHoldInterval: 600
+                property bool held: false
+                onPressed: held = false
+                onPressAndHold: function(mouse) { held = true; page.fieldHeld("text", area, mouse.x, mouse.y) }
+                onClicked: function(mouse) { if (!held) page.fieldClicked("text", area, mouse.x, mouse.y) }
+            }
+            SelectionHandles {
+                target: area
+                multiline: true
+                active: page.activeField === "text"
+                onDraggingChanged: if (dragging) menu.close()
+                onFinished: page.openMenu()
+            }
         }
     }
 
@@ -243,5 +448,10 @@ Item {
         onAccepted: {
             if (bridge.deleteNote(page.noteId)) { Qt.inputMethod.hide(); page.StackView.view.pop(null) }
         }
+    }
+
+    SelectionMenu {
+        id: menu
+        onChosen: function(id) { page.menuChosen(id) }
     }
 }

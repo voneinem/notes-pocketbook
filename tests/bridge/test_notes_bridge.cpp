@@ -885,6 +885,136 @@ PB_TEST(emojis_survive_the_reader_and_the_list) {
     PB_CHECK_EQ(blocks.at(1).toMap().value("html").toString().toStdString(), "Line " + family + " &amp; " + flag);
 }
 
+// ---- spec 005: the title on the reading page --------------------------------------------------------------------------
+
+PB_TEST(opening_a_note_reports_whether_it_has_a_title_to_show) {
+    pbtest::TmpDir data;
+    NotesBridge bridge(config_for(data));
+    const qlonglong id = bridge.saveNote(-1, "Groceries", "Not the title\nmilk", "", false);
+    PB_CHECK(id > 0);
+    const QVariantMap note = bridge.openNote(id);
+    PB_CHECK(note.value("hasTitle").toBool());
+    PB_CHECK_EQ(note.value("titleText").toString().toStdString(), std::string("Groceries"));
+    PB_CHECK_EQ(note.value("title").toString().toStdString(), std::string("Groceries"));
+}
+
+PB_TEST(a_title_of_255_characters_is_returned_whole) {
+    pbtest::TmpDir data;
+    NotesBridge bridge(config_for(data));
+    const QString title(255, QLatin1Char('t'));
+    const qlonglong id = bridge.saveNote(-1, title, "text", "", false);
+    PB_CHECK(id > 0);
+    PB_CHECK_EQ(bridge.openNote(id).value("titleText").toString().size(), 255);
+}
+
+PB_TEST(a_note_without_any_title_has_none_to_show_but_the_list_still_says_untitled) {
+    pbtest::TmpDir data;
+    seed(data, {remote_note(1, "", "", 100), remote_note(2, "  \n\n", "", 90)});
+    NotesBridge bridge(config_for(data));
+    const QVariantList rows = bridge.listNotes();
+    PB_CHECK_EQ(rows.size(), 2);
+    for (const QVariant& r : rows) {
+        const QVariantMap note = bridge.openNote(r.toMap().value("localId").toLongLong());
+        PB_CHECK(!note.value("hasTitle").toBool());                         // the reader shows no title block
+        PB_CHECK_EQ(note.value("titleText").toString().trimmed().size(), 0);
+        PB_CHECK_EQ(note.value("title").toString().toStdString(), std::string("(untitled)"));
+        PB_CHECK_EQ(r.toMap().value("title").toString().toStdString(), std::string("(untitled)"));
+    }
+}
+
+PB_TEST(the_reader_gets_the_title_as_stored_not_stripped) {
+    pbtest::TmpDir data;
+    NotesBridge bridge(config_for(data));
+    const qlonglong id = bridge.saveNote(-1, "# Plan", "text", "", false);
+    PB_CHECK_EQ(bridge.openNote(id).value("titleText").toString().toStdString(), std::string("# Plan"));
+}
+
+PB_TEST(the_text_is_not_de_duplicated_against_the_title) {
+    pbtest::TmpDir data;
+    NotesBridge bridge(config_for(data));
+    const qlonglong id = bridge.saveNote(-1, "Groceries", "# Groceries\nmilk", "", false);
+    const QVariantMap note = bridge.openNote(id);
+    const QVariantList blocks = note.value("blocks").toList();
+    PB_CHECK_EQ(blocks.size(), 2);
+    PB_CHECK_EQ(blocks.at(0).toMap().value("kind").toString().toStdString(), std::string("heading"));
+    PB_CHECK_EQ(blocks.at(0).toMap().value("html").toString().toStdString(), std::string("Groceries"));
+    PB_CHECK(note.value("hasTitle").toBool());
+}
+
+// ---- spec 005: copying from the reading page ------------------------------------------------------------------------
+
+namespace {
+QString copied(NotesBridge& bridge, qlonglong id, int fu, int fo, int tu, int to) {
+    return bridge.readerCopy(id, fu, fo, tu, to);
+}
+}  // namespace
+
+PB_TEST(the_reader_copy_returns_the_title_and_source_text) {
+    pbtest::TmpDir data;
+    NotesBridge bridge(config_for(data));
+    const qlonglong id = bridge.saveNote(-1, "Plan", "# Head\nsome **bold** words", "", false);
+    // units: 0 = title, 1 = "Head", 2 = the paragraph
+    PB_CHECK_EQ(copied(bridge, id, 0, 0, 0, 4).toStdString(), std::string("Plan"));
+    PB_CHECK_EQ(copied(bridge, id, 0, 0, 1, 4).toStdString(), std::string("Plan\n# Head"));
+    PB_CHECK_EQ(copied(bridge, id, 1, 1, 1, 3).toStdString(), std::string("ea"));              // inside the heading: characters only
+    PB_CHECK_EQ(copied(bridge, id, 2, 5, 2, 9).toStdString(), std::string("**bold**"));         // a completely selected element
+    PB_CHECK_EQ(copied(bridge, id, 2, 6, 2, 8).toStdString(), std::string("ol"));               // partly: no marks
+    PB_CHECK_EQ(copied(bridge, id, 0, 2, 2, 4).toStdString(), std::string("an\n# Head\nsome")); // from the title on
+}
+
+PB_TEST(the_reader_copy_counts_utf16_units) {
+    pbtest::TmpDir data;
+    NotesBridge bridge(config_for(data));
+    const qlonglong id = bridge.saveNote(-1, "T", "\U0001F600 smile and more", "", false);
+    // unit 1 is the paragraph: the emoji is two UTF-16 units, so " smile" is units 2..8
+    PB_CHECK_EQ(copied(bridge, id, 1, 2, 1, 8).toStdString(), std::string(" smile"));
+    PB_CHECK_EQ(copied(bridge, id, 1, 0, 1, 2).toStdString(), std::string("\xF0\x9F\x98\x80"));
+}
+
+PB_TEST(a_note_without_a_title_or_text_copies_nothing) {
+    pbtest::TmpDir data;
+    seed(data, {remote_note(1, "", "", 100)});
+    NotesBridge bridge(config_for(data));
+    const qlonglong id = bridge.listNotes().at(0).toMap().value("localId").toLongLong();
+    PB_CHECK_EQ(copied(bridge, id, 0, 0, 0, 0).toStdString(), std::string());
+    PB_CHECK_EQ(copied(bridge, id, 0, 0, 3, 3).toStdString(), std::string());
+}
+
+PB_TEST(table_rows_and_attachments_are_whole_units) {
+    pbtest::TmpDir data;
+    NotesBridge bridge(config_for(data));
+    const qlonglong id = bridge.saveNote(-1, "T", "| a | b |\n|---|---|\n| 1 | 2 |\n![n](.attachments.4/pic.png)", "", false);
+    // units: 0 title, 1 header row, 2 data row, 3 attachment
+    PB_CHECK_EQ(copied(bridge, id, 2, 0, 2, 0).toStdString(), std::string("| 1 | 2 |"));
+    PB_CHECK_EQ(copied(bridge, id, 3, 0, 3, 0).toStdString(), std::string("![n](.attachments.4/pic.png)"));
+    PB_CHECK_EQ(copied(bridge, id, 1, 0, 2, 0).toStdString(), std::string("| a | b |\n|---|---|\n| 1 | 2 |"));
+}
+
+PB_TEST(a_reversed_or_out_of_range_selection_copies_nothing) {
+    pbtest::TmpDir data;
+    NotesBridge bridge(config_for(data));
+    const qlonglong id = bridge.saveNote(-1, "T", "alpha\nbeta", "", false);
+    // normalized: from and to may come in either order
+    PB_CHECK_EQ(copied(bridge, id, 2, 2, 1, 1).toStdString(), copied(bridge, id, 1, 1, 2, 2).toStdString());
+    PB_CHECK_EQ(copied(bridge, id, 0, 0, 99, 0).toStdString(), std::string());
+    PB_CHECK_EQ(copied(bridge, 12345, 0, 0, 1, 1).toStdString(), std::string());   // unknown note
+}
+
+PB_TEST(copying_changes_nothing) {
+    pbtest::TmpDir data;
+    NotesBridge bridge(config_for(data));
+    const qlonglong id = bridge.saveNote(-1, "Plan", "# Head\nsome **bold** words", "Work", true);
+    const auto before = bridge.openNote(id);
+    const auto list = bridge.listNotes();
+    const int pending = bridge.property("pendingCount").toInt();
+    (void)copied(bridge, id, 0, 0, 2, 9);
+    (void)copied(bridge, id, 1, 0, 1, 0);
+    const auto after = bridge.openNote(id);
+    PB_CHECK(before == after);                                   // title, blocks, modified, pending, category, favorite
+    PB_CHECK(list == bridge.listNotes());
+    PB_CHECK_EQ(bridge.property("pendingCount").toInt(), pending);
+}
+
 int main(int argc, char** argv) {
     QCoreApplication app(argc, argv);
     return pbtest::run_all();

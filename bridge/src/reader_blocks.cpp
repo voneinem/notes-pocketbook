@@ -69,14 +69,25 @@ const char* align_name(pbnotes::TableData::Align a) {
     return "left";
 }
 
+// {begin, end} of a block in its source line (spec 005; informational for the page, copy goes through the core).
+QVariantMap src_extent(const pbnotes::Block& b) {
+    QVariantMap m;
+    m.insert(QStringLiteral("begin"), b.src_begin);
+    m.insert(QStringLiteral("end"), b.src_end);
+    return m;
+}
+
 // A table becomes one block per row, so a page break can never fall inside a row.
-void append_table_rows(QVariantList* blocks, const pbnotes::Block& b) {
+void append_table_rows(QVariantList* blocks, const pbnotes::Block& b, int block_index) {
     const pbnotes::TableData& t = b.table;
     QVariantList weights;
     for (double w : t.weight) weights.append(w);
     for (size_t r = 0; r < t.rows.size(); ++r) {
         QVariantMap m;
         m.insert(QStringLiteral("kind"), QStringLiteral("tablerow"));
+        m.insert(QStringLiteral("block"), block_index);
+        m.insert(QStringLiteral("row"), static_cast<int>(r));
+        m.insert(QStringLiteral("src"), src_extent(b));
         m.insert(QStringLiteral("line"), b.line_index + (r == 0 ? 0 : static_cast<int>(r) + 1));
         m.insert(QStringLiteral("unsplittable"), true);
         m.insert(QStringLiteral("header"), r == 0);
@@ -116,7 +127,8 @@ namespace {
 QString error_text(const std::string& key) { return attachment_error_text(key); }
 
 // The attachment block of a reference: state and details from the store row, if there is one.
-QVariantMap attachment_block(const pbnotes::Block& b, const pbnotes::Note& note, const pbnotes::NoteStore* store) {
+QVariantMap attachment_block(const pbnotes::Block& b, int block_index, const pbnotes::Note& note,
+                             const pbnotes::NoteStore* store) {
     const pbnotes::AttachmentRef& ref = b.attachment;
     std::optional<pbnotes::Attachment> row;
     if (store) {
@@ -130,6 +142,9 @@ QVariantMap attachment_block(const pbnotes::Block& b, const pbnotes::Note& note,
     }
     QVariantMap m;
     m.insert(QStringLiteral("kind"), QStringLiteral("attachment"));
+    m.insert(QStringLiteral("block"), block_index);
+    m.insert(QStringLiteral("row"), 0);
+    m.insert(QStringLiteral("src"), src_extent(b));
     m.insert(QStringLiteral("line"), b.line_index);
     m.insert(QStringLiteral("unsplittable"), true);
 
@@ -180,17 +195,22 @@ QString format_size(qlonglong bytes) {
 
 QVariantList reader_blocks(const pbnotes::Note& note, const pbnotes::NoteStore* store) {
     QVariantList blocks;
+    int index = -1;
     for (const pbnotes::Block& b : pbnotes::parse_markdown(note.content)) {
+        ++index;  // the block's place in the parse result (spec 005: the reading page copies by it)
         if (b.kind == pbnotes::BlockKind::Table) {
-            append_table_rows(&blocks, b);
+            append_table_rows(&blocks, b, index);
             continue;
         }
         if (b.kind == pbnotes::BlockKind::Attachment) {
-            blocks.append(attachment_block(b, note, store));
+            blocks.append(attachment_block(b, index, note, store));
             continue;
         }
         QVariantMap m;
         m.insert(QStringLiteral("kind"), QString::fromLatin1(block_kind(b.kind)));
+        m.insert(QStringLiteral("block"), index);
+        m.insert(QStringLiteral("row"), 0);
+        m.insert(QStringLiteral("src"), src_extent(b));
         m.insert(QStringLiteral("line"), b.line_index);
         m.insert(QStringLiteral("level"), b.level);
         m.insert(QStringLiteral("ordered"), b.ordered);

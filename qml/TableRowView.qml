@@ -9,6 +9,7 @@ Item {
     property var block
     property int fontPx: 38
     signal linkActivated(int column, string link)
+    property bool selected: false   // a whole unit of the reader's selection (spec 005): drawn with a black frame
 
     readonly property int pad: 10
     readonly property int border: 2
@@ -92,5 +93,14 @@ Item {
                 }
             }
         }
+    }
+
+    Rectangle {
+        visible: root.selected
+        anchors { left: parent.left; right: parent.right; top: parent.top }
+        height: root.height - (root.block.lastRow ? 10 : 0)
+        color: "transparent"
+        border.width: 4
+        border.color: "#000000"
     }
 }

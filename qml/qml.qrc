@@ -4,11 +4,16 @@
         <file>InkButton.qml</file>
         <file>PageButtons.qml</file>
         <file>BlockText.qml</file>
+        <file>TitleBlock.qml</file>
+        <file>SelectableText.qml</file>
         <file>TableRowView.qml</file>
         <file>AttachmentView.qml</file>
         <file>ConfirmDialog.qml</file>
         <file>ChoiceDialog.qml</file>
         <file>TextEntryDialog.qml</file>
+        <file>SelectionHandle.qml</file>
+        <file>SelectionHandles.qml</file>
+        <file>SelectionMenu.qml</file>
         <file>pages/SetupPage.qml</file>
         <file>pages/NoteListPage.qml</file>
         <file>pages/ReaderPage.qml</file>

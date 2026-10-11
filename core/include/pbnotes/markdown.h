@@ -20,6 +20,11 @@ struct Span {
     std::string text;
     std::string url;             // non-empty = a link; always passes is_followable_url
     bool link_confirm = false;   // link_needs_confirmation(label, url): ask before opening
+    // Where the text came from (spec 005, for copying the note's own text). Additive: empty / -1 = unknown.
+    std::vector<int> src;        // per byte of `text`: byte index in the block's source line; for a character produced
+                                 // by a backslash escape the index of the backslash
+    int el_begin = -1;           // source extent [el_begin, el_end) of the formatted element the span belongs to,
+    int el_end = -1;             // marks included (`**bold**`, `[label](url)`, `<url>`); plain text: its own characters
 };
 
 // A GitHub-style pipe table (spec 002 FR-007..FR-013). Every row has as many cells as there are
@@ -53,6 +58,10 @@ struct Block {
     std::vector<Span> spans;
     TableData table;         // Table
     AttachmentRef attachment;  // Attachment
+    // Source extent of the block in its line (spec 005): from column 0 (indentation and heading/list/task prefix
+    // included) to the end of its text; an Attachment: the reference as written. Not set for Table and Blank.
+    int src_begin = 0;
+    int src_end = 0;
 };
 
 // An attachment reference ends the text segment it stands in: the line becomes text block(s) and Attachment
@@ -67,6 +76,21 @@ std::vector<AttachmentRef> find_attachment_refs(std::string_view text);
 // Rewrites every attachment reference whose decoded path is a key of `token_for_path` as the local token
 // `![name](pbatt:<id>)`; everything else (other references, code, text) is unchanged byte for byte.
 std::string tokenize_attachment_refs(std::string_view text, const std::map<std::string, int64_t>& token_for_path);
+
+// A displayed position: the block in the parse result, the row of a Table block (0 otherwise) and a byte offset into
+// the block's displayed text (the concatenation of its span texts).
+struct SourcePoint {
+    size_t block = 0;
+    size_t row = 0;
+    size_t byte = 0;
+};
+
+// The note's own source text for the displayed range [from, to] of `blocks` (= parse_markdown(note_text)); empty when
+// from > to. A block selected entirely, or reached from a previous block, brings its whole line extent (prefix
+// included); a partly selected one only its characters, widened to the marks of every element that is selected
+// completely. Table rows, attachments and blank lines are whole units: their source line / reference as written.
+// Pieces of one source line stay one line; different lines are joined by "\n".
+std::string copy_source(std::string_view note_text, const std::vector<Block>& blocks, SourcePoint from, SourcePoint to);
 
 // Flips the checkbox of the task item on source line `line_index` ([ ] <-> [x]; [X] becomes [ ]) and
 // leaves every other byte untouched. Returns the text unchanged if that line is not a task item

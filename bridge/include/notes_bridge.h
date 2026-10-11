@@ -92,10 +92,17 @@ public:
     // The note list for the saved view and sort order: [{localId, title, category, excerpt, favorite,
     // modified, pending}]. Cheap enough to call again after every change (notesChanged()).
     Q_INVOKABLE QVariantList listNotes() const;
-    // One note for the reader: {localId, title, category, favorite, modified, pending, blocks:[{kind
+    // One note for the reader: {localId, title, titleText, hasTitle, category, favorite, modified, pending, blocks:[{kind
     // ("heading"|"paragraph"|"listitem"|"blank"), line, level, ordered, number, depth, task, checked,
-    // html}]}. html is escaped text with <b>/<i> only (Text.StyledText). Empty map if unknown.
+    // html}]}. html is escaped text with <b>/<i> only (Text.StyledText). Empty map if unknown. `title` is the list's
+    // title ("(untitled)" for a legacy note without one); `titleText` is the stored title as is and `hasTitle` is
+    // false for an empty one: the reading page shows a title block only when it is true.
     Q_INVOKABLE QVariantMap openNote(qlonglong localId) const;
+    // Copy on the reading page (spec 005): the note's source text for the selected range. Units are the title (unit 0,
+    // only when the note has a title) followed by one unit per entry of openNote().blocks; offsets are UTF-16 units
+    // of the unit's displayed text (0 for a whole unit: a table row, an attachment, a blank line). The range may come
+    // in either order. "" for an unknown note or an invalid range. Never writes.
+    Q_INVOKABLE QString readerCopy(qlonglong localId, int fromUnit, int fromOffset, int toUnit, int toOffset) const;
     // "1.5 KB", "1.0 MB"; "" for an unknown (negative) size.
     Q_INVOKABLE QString formatSize(qlonglong bytes) const;
     // Scroll offset of the next/previous page that does not cut a table row or an attachment: wraps the

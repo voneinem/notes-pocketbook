@@ -15,6 +15,7 @@ Item {
     signal downloadRequested()
     signal openRequested()
     signal imageTapped()
+    property bool selected: false   // a whole unit of the reader's selection (spec 005): drawn with a thicker frame
 
     readonly property int pad: 14
     readonly property real textPx: Math.max(20, Math.round(fontPx * 0.8))
@@ -32,7 +33,7 @@ Item {
         width: root.width
         height: hasImage ? img.height + 2 * root.pad : info.implicitHeight + 2 * root.pad
         color: "#ffffff"
-        border.width: 2
+        border.width: root.selected ? 6 : 2
         border.color: "#000000"
 
         // the picture in place

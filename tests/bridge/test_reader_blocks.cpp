@@ -257,6 +257,27 @@ PB_TEST(sizes_are_formatted_for_people) {
     PB_CHECK_EQ(format_size(-1).toStdString(), std::string());   // unknown
 }
 
+// ---- spec 005: where each entry comes from ---------------------------------------------------------------------------
+
+PB_TEST(every_entry_says_which_parsed_block_and_row_it_is) {
+    const QVariantList all = reader_blocks(note_with("# T\n\ntext\n| a | b |\n|---|---|\n| 1 | 2 |\n![x](.attachments.1/y.png)"));
+    // heading, blank, paragraph, two table rows (one block), attachment
+    PB_CHECK_EQ(all.size(), 6);
+    PB_CHECK_EQ(all.at(0).toMap().value("block").toInt(), 0);
+    PB_CHECK_EQ(all.at(1).toMap().value("block").toInt(), 1);
+    PB_CHECK_EQ(all.at(2).toMap().value("block").toInt(), 2);
+    PB_CHECK_EQ(all.at(3).toMap().value("block").toInt(), 3);
+    PB_CHECK_EQ(all.at(4).toMap().value("block").toInt(), 3);   // the same table block ...
+    PB_CHECK_EQ(all.at(3).toMap().value("row").toInt(), 0);     // ... row 0 (the header)
+    PB_CHECK_EQ(all.at(4).toMap().value("row").toInt(), 1);
+    PB_CHECK_EQ(all.at(5).toMap().value("block").toInt(), 4);
+    PB_CHECK_EQ(all.at(5).toMap().value("row").toInt(), 0);
+    // text entries tell their extent in the source line
+    const QVariantMap heading = all.at(0).toMap().value("src").toMap();
+    PB_CHECK_EQ(heading.value("begin").toInt(), 0);
+    PB_CHECK_EQ(heading.value("end").toInt(), 3);
+}
+
 int main(int argc, char** argv) {
     QCoreApplication app(argc, argv);
     return pbtest::run_all();

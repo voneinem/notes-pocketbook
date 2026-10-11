@@ -21,6 +21,7 @@
 #include "device_bridge.h"
 #include "attachment_image_provider.h"
 #include "about_bridge.h"
+#include "edit_bridge.h"
 #include "attachments_bridge.h"
 #include "notes_bridge.h"
 #include "pbnotes/attachment_service.h"
@@ -113,6 +114,8 @@ int main(int argc, char** argv) {
 #endif
     about_config.version = QString::fromUtf8(pbnotes::version());
     AboutBridge about(about_config);
+    ClipboardBridge clipboard;
+    EditSession editSession;
 
     QQmlApplicationEngine engine;
     int qml_warnings = 0;
@@ -124,6 +127,8 @@ int main(int argc, char** argv) {
     engine.rootContext()->setContextProperty(QStringLiteral("device"), &device);
     engine.rootContext()->setContextProperty(QStringLiteral("attachments"), &attachments);
     engine.rootContext()->setContextProperty(QStringLiteral("about"), &about);
+    engine.rootContext()->setContextProperty(QStringLiteral("clipboard"), &clipboard);
+    engine.rootContext()->setContextProperty(QStringLiteral("editSession"), &editSession);
     if (notes.store())  // the engine owns the provider
         engine.addImageProvider(QStringLiteral("attachment"), new AttachmentImageProvider(notes.store(), config.attachmentsDir));
     // Desktop-only start options (PBNOTES_START_PAGE / PBNOTES_START_NOTE); both are always defined,
