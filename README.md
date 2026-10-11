@@ -5,7 +5,7 @@ server. Read your notes on e-ink, also offline; write and edit with the on-scree
 when you are on Wi-Fi.
 
 > **Status: MVP complete and tested on an InkPad One; rich note content (links, tables, emojis,
-> attachments) is implemented and tested on the host, its device checks are still open.** Early
+> attachments) and the About box are implemented and tested on the host, their device checks are still open.** Early
 > software; it works for the author.
 >
 > - **Works on the device (MVP):** setup with a connection test, note list with views, sorting and
@@ -69,6 +69,25 @@ Details: [spec.md](specs/002-rich-note-content/spec.md), [quickstart](specs/002-
   keeps its attachments.
 - **Upgrade is one way.** The first start of this version upgrades the local database to schema 2 (a
   backup is made and removed after the check). An older build of the app refuses an upgraded database.
+
+### Versions
+
+The release version is the file [VERSION](VERSION); the app, the About screen and the package name all use it.
+Every feature raises it and adds an entry to [CHANGELOG.md](CHANGELOG.md); `scripts/pre-merge.sh` fails
+otherwise (`scripts/check-version-bump.sh`). After the merge, tag the release: `git tag v$(cat VERSION)`.
+
+### About box
+
+Settings → *About this app* shows the app's name, version, author, copyright and license. *License* shows
+the full license text; *Third-party licenses* lists every library, code base, font and data file the app
+uses (including Qt, libcurl and OpenSSL, which the reader provides) with its license and full text, all
+offline. Details: [spec.md](specs/003-about-box/spec.md), [quickstart](specs/003-about-box/quickstart.md).
+
+The list comes from one manifest, [licenses/manifest.txt](licenses/manifest.txt); the install package carries
+it and the license texts it names as `applications/pbnotes-licenses/`. **To add a dependency:** add a block
+to the manifest and a section to [NOTICE](NOTICE) (its heading starts with the component's name); the test
+`test_license_consistency` fails the build when a vendored directory, a CMake dependency, a `NOTICE` section
+or a license file does not match the manifest.
 
 ## Security notes
 
@@ -138,7 +157,9 @@ were used on an InkPad One.
 - [Specification](specs/001-pocketbook-notes-mvp/spec.md), [plan](specs/001-pocketbook-notes-mvp/plan.md),
   [tasks](specs/001-pocketbook-notes-mvp/tasks.md); rich note content:
   [specification](specs/002-rich-note-content/spec.md), [plan](specs/002-rich-note-content/plan.md),
-  [tasks](specs/002-rich-note-content/tasks.md)
+  [tasks](specs/002-rich-note-content/tasks.md); About box:
+  [specification](specs/003-about-box/spec.md), [plan](specs/003-about-box/plan.md),
+  [tasks](specs/003-about-box/tasks.md)
 - Background analyses in [`docs/`](docs/): [InkFeed](https://github.com/jrohde/InkFeed), the PocketBook SDK, and the behavior of the
   Android Notes app (reference only)
 

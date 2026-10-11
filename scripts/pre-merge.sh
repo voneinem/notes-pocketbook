@@ -6,6 +6,8 @@
 #   scripts/pre-merge.sh --secrets    only the secret scan
 #   scripts/pre-merge.sh --self-test  prove that the built-in secret scan detects what it should
 #
+# It also runs scripts/check-version-bump.sh: a branch that changes the product must raise VERSION and
+# add a CHANGELOG.md entry.
 # The tests include scripts/check-constitution.sh (TLS bypasses, SDK paths, Qt in the core,
 # logging of personal data, absolute local paths) and scripts/check-fixtures.sh (anonymized fixtures).
 set -euo pipefail
@@ -66,6 +68,9 @@ if [ "${1:-}" = "--secrets" ]; then
     secret_scan "$ROOT"
     exit $?
 fi
+
+echo "== version bump"
+"$ROOT/scripts/check-version-bump.sh" "$ROOT"
 
 echo "== host build and tests"
 cmake -S "$ROOT" -B "$ROOT/build-premerge" -G Ninja -DCMAKE_BUILD_TYPE=Debug >/dev/null

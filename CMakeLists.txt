@@ -16,7 +16,14 @@ if(TARGET_TYPE STREQUAL "ARM")
     include(${CMAKE_CURRENT_LIST_DIR}/cmake/sdk.cmake)
 endif()
 
-project(pbnotes VERSION 0.0.0 LANGUAGES C CXX)
+# The release version lives in the VERSION file (single source of truth for the app and the package).
+set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS ${CMAKE_CURRENT_LIST_DIR}/VERSION)
+file(STRINGS ${CMAKE_CURRENT_LIST_DIR}/VERSION PBNOTES_FILE_VERSION LIMIT_COUNT 1)
+if(NOT PBNOTES_FILE_VERSION MATCHES "^[0-9]+\\.[0-9]+\\.[0-9]+")
+    message(FATAL_ERROR "VERSION must start with MAJOR.MINOR.PATCH (got '${PBNOTES_FILE_VERSION}')")
+endif()
+
+project(pbnotes VERSION ${PBNOTES_FILE_VERSION} LANGUAGES C CXX)
 
 set(PBNOTES_APP_NAME "pbnotes" CACHE STRING "Application/binary base name")
 
@@ -29,15 +36,9 @@ if(NOT CMAKE_BUILD_TYPE AND NOT CMAKE_CONFIGURATION_TYPES)
     set(CMAKE_BUILD_TYPE Debug CACHE STRING "Build type" FORCE)
 endif()
 
-# Version string shown in the app; override with -DPBNOTES_VERSION=...
+# Version string shown in the app: the VERSION file; override with -DPBNOTES_VERSION=...
 if(NOT PBNOTES_VERSION)
-    execute_process(COMMAND git describe --tags --always --dirty
-        WORKING_DIRECTORY ${CMAKE_CURRENT_LIST_DIR}
-        OUTPUT_VARIABLE PBNOTES_VERSION OUTPUT_STRIP_TRAILING_WHITESPACE
-        ERROR_QUIET RESULT_VARIABLE PBNOTES_GIT_RESULT)
-    if(NOT PBNOTES_GIT_RESULT EQUAL 0 OR "${PBNOTES_VERSION}" STREQUAL "")
-        set(PBNOTES_VERSION "0.0.0")
-    endif()
+    set(PBNOTES_VERSION "${PBNOTES_FILE_VERSION}")
 endif()
 message(STATUS "pbnotes version: ${PBNOTES_VERSION} (${TARGET_TYPE})")
 

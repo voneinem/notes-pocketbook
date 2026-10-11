@@ -100,6 +100,12 @@ conditional GET because the server may not honor If-Match on DELETE.
 - A feature follows the Spec Kit flow: specification → plan → tasks → implementation, with the
   plan's Constitution Check passing (or deviations justified) before design proceeds.
 - Test gates: all tests pass and no new secrets are detected before merge.
+- Release version: every merged change to the product raises `VERSION` (MINOR for a feature, PATCH for
+  a fix, MAJOR for a breaking change such as an irreversible data upgrade) and adds an entry to
+  `CHANGELOG.md`. The bump is a task of the feature (last phase of `tasks.md`) and is enforced by
+  `scripts/check-version-bump.sh` in `scripts/pre-merge.sh`. After the merge the release is tagged
+  `v<version>`. Changes nobody can see (refactoring) may opt out with `PBNOTES_NO_BUMP=1`, stated in
+  the pull request.
 - Reviewers MUST reject changes that add TLS-verification bypasses, hard-coded SDK paths, or code
   copied from notes-android.
 
@@ -116,4 +122,4 @@ guidance; PATCH for clarifications and wording fixes.
 Compliance is reviewed in every pull request and in each plan's Constitution Check. Unjustified
 violations block the merge.
 
-**Version**: 1.2.0 | **Ratified**: 2026-10-10 | **Last Amended**: 2026-10-10
+**Version**: 1.3.0 | **Ratified**: 2026-10-10 | **Last Amended**: 2026-10-11

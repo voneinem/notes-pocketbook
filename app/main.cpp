@@ -20,10 +20,12 @@
 
 #include "device_bridge.h"
 #include "attachment_image_provider.h"
+#include "about_bridge.h"
 #include "attachments_bridge.h"
 #include "notes_bridge.h"
 #include "pbnotes/attachment_service.h"
 #include "pbnotes/log.h"
+#include "pbnotes/version.h"
 
 #ifdef PLATFORM_POCKETBOOK
 #include <inkview.h>
@@ -101,6 +103,17 @@ int main(int argc, char** argv) {
     attachment_config.wifiConnected = [&device]() { return device.wifiConnected(); };
     AttachmentsBridge attachments(&notes, attachment_config);
 
+    // About screens: the manifest and the license texts live in pbnotes-licenses/ next to the app on the reader,
+    // and in the repository on the host (PBNOTES_LICENSES_ROOT overrides both).
+    AboutBridge::Config about_config;
+#ifdef PLATFORM_POCKETBOOK
+    about_config.licensesRoot = qEnvironmentVariable("PBNOTES_LICENSES_ROOT", QStringLiteral("/mnt/ext1/applications/pbnotes-licenses"));
+#else
+    about_config.licensesRoot = qEnvironmentVariable("PBNOTES_LICENSES_ROOT", QStringLiteral(PBNOTES_LICENSES_ROOT));
+#endif
+    about_config.version = QString::fromUtf8(pbnotes::version());
+    AboutBridge about(about_config);
+
     QQmlApplicationEngine engine;
     int qml_warnings = 0;
     QObject::connect(&engine, &QQmlApplicationEngine::warnings, &app, [&](const QList<QQmlError>& list) {
@@ -110,6 +123,7 @@ int main(int argc, char** argv) {
     engine.rootContext()->setContextProperty(QStringLiteral("bridge"), &notes);
     engine.rootContext()->setContextProperty(QStringLiteral("device"), &device);
     engine.rootContext()->setContextProperty(QStringLiteral("attachments"), &attachments);
+    engine.rootContext()->setContextProperty(QStringLiteral("about"), &about);
     if (notes.store())  // the engine owns the provider
         engine.addImageProvider(QStringLiteral("attachment"), new AttachmentImageProvider(notes.store(), config.attachmentsDir));
     // Desktop-only start options (PBNOTES_START_PAGE / PBNOTES_START_NOTE); both are always defined,

@@ -12,6 +12,7 @@ target_link_libraries(pbnotes_sqlite PUBLIC pthread m)
 
 set(PBNOTES_CORE_SOURCES
     src/version.cpp
+    src/about.cpp
     src/types.cpp
     src/http_transport.cpp
     src/title.cpp

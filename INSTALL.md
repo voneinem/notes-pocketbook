@@ -15,6 +15,7 @@ These steps install the app from the release zip. They are written for the InkPa
    applications/pbnotes-cacert.pem     bundled CA certificates
    applications/pbnotes-emoji.ttf      monochrome emoji font (Noto Emoji)
    applications/pbnotes-emoji-OFL.txt  license of the emoji font (SIL OFL 1.1)
+   applications/pbnotes-licenses/      license texts shown by Settings > About (copy the whole folder)
    applications/icons/pbnotes.bmp
    applications/icons/pbnotes_f.bmp
    ```

@@ -15,5 +15,8 @@
         <file>pages/ImagePage.qml</file>
         <file>pages/FilePickerPage.qml</file>
         <file>pages/SettingsPage.qml</file>
+        <file>pages/AboutPage.qml</file>
+        <file>pages/LicenseTextPage.qml</file>
+        <file>pages/ThirdPartyPage.qml</file>
     </qresource>
 </RCC>

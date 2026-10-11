@@ -2,7 +2,7 @@ import QtQuick
 import QtQuick.Controls
 import ".."
 
-// Certificates, screen rotation, and the account (with "Forget account").
+// Certificates, screen rotation, the account (with "Forget account"), and About.
 Item {
     id: page
 
@@ -78,6 +78,12 @@ Item {
                 enabled: bridge.configured
                 onClicked: confirmForget.open()
             }
+            Text { text: qsTr("About"); font.pixelSize: 36; font.bold: true; color: "#000000" }
+            InkButton {
+                text: qsTr("About this app")
+                onClicked: page.StackView.view.push(Qt.resolvedUrl("AboutPage.qml"))
+            }
+
             Text {
                 width: parent.width
                 visible: page.message.length > 0

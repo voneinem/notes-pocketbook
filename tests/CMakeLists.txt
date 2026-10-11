@@ -27,7 +27,7 @@ endforeach()
 
 # The Qt bridge tests need Qt Core; test_notes_bridge runs real local HTTPS servers like the core TLS tests.
 if(TARGET pbnotes_bridge)
-    foreach(name test_notes_bridge test_reader_blocks test_attachment_image_provider test_attachments_bridge)
+    foreach(name test_notes_bridge test_reader_blocks test_attachment_image_provider test_attachments_bridge test_about_bridge)
         add_executable(${name} bridge/${name}.cpp)
         target_link_libraries(${name} PRIVATE pbnotes_bridge OpenSSL::SSL OpenSSL::Crypto Threads::Threads)
         target_include_directories(${name} PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/support)
@@ -44,5 +44,6 @@ add_test(NAME check_fixtures_selftest
     COMMAND ${CMAKE_SOURCE_DIR}/scripts/check-fixtures.sh --self-test)
 add_test(NAME check_constitution COMMAND ${CMAKE_SOURCE_DIR}/scripts/check-constitution.sh ${CMAKE_SOURCE_DIR})
 add_test(NAME check_constitution_selftest COMMAND ${CMAKE_SOURCE_DIR}/scripts/check-constitution.sh --self-test)
+add_test(NAME check_version_bump_selftest COMMAND ${CMAKE_SOURCE_DIR}/scripts/check-version-bump.sh --self-test)
 set_tests_properties(check_fixtures check_fixtures_selftest check_constitution check_constitution_selftest
                      PROPERTIES LABELS "script")

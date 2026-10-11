@@ -157,6 +157,9 @@ Examples of foundational tasks (adjust based on your project):
 - [ ] TXXX [P] Additional unit tests (if requested) in tests/unit/
 - [ ] TXXX Security hardening
 - [ ] TXXX Run quickstart.md validation
+- [ ] TXXX Release: raise `VERSION` (MINOR for a feature, PATCH for a fix, MAJOR for a breaking change; say
+  which and why), add the `## <version>` entry to `CHANGELOG.md`, rebuild, and run
+  `scripts/check-version-bump.sh` (part of `scripts/pre-merge.sh`). Tag `v<version>` after the merge.
 
 ---
 

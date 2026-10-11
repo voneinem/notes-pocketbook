@@ -52,3 +52,65 @@ repository (https://github.com/google/fonts/tree/main/ofl/notoemoji). Copyright 
 Licensed under the SIL Open Font License, Version 1.1; the license text is third_party/noto-emoji/OFL.txt
 and is installed next to the font on the reader (applications/pbnotes-emoji-OFL.txt). Source commit
 and checksum: third_party/noto-emoji/VERSION.
+
+--------------------------------------------------------------------------------
+Qt 6.8 (Core, Gui, Qml, Quick) (LGPL-3.0)
+https://www.qt.io/licensing/
+
+The user interface is built with Qt, provided by the reader's system software and not redistributed
+by this project. Qt is linked dynamically, so it can be replaced by another build of the same
+version. Qt is available under the GNU Lesser General Public License 3 (and other terms); the full
+texts are shown in the app and in licenses/LGPL-3.0.txt and licenses/GPL-3.0.txt. Qt includes
+further components under their own licenses; see the documentation of the Qt version on the reader.
+
+Copyright (C) The Qt Company Ltd. and other contributors.
+
+--------------------------------------------------------------------------------
+libcurl (curl license)
+https://curl.se/docs/copyright.html
+
+All network connections use libcurl, provided by the reader's system software and not redistributed
+by this project. Licensed under the curl license (MIT-style); the text is shown in the app and in
+licenses/curl.txt.
+
+Copyright (c) Daniel Stenberg, <daniel@haxx.se>, and many contributors.
+
+--------------------------------------------------------------------------------
+OpenSSL (Apache-2.0)
+https://www.openssl.org/source/license.html
+
+libcurl uses OpenSSL, provided by the reader's system software and not redistributed by this
+project, to encrypt and verify connections. Licensed under the Apache License 2.0; the text is
+shown in the app and in licenses/Apache-2.0.txt.
+
+Copyright (c) The OpenSSL Project Authors.
+
+--------------------------------------------------------------------------------
+PocketBook InkView (terms set by PocketBook)
+https://www.pocketbook-int.com
+
+The screen, keys and system functions of the reader are used through PocketBook's InkView library
+(libinkview), part of the reader's firmware and not redistributed by this project. The SDK
+carries no license text for it, so none is shown and no license name is claimed here; the terms
+are those set by PocketBook.
+
+--------------------------------------------------------------------------------
+GNU C Library (LGPL-2.1-or-later)
+https://www.gnu.org/software/libc/
+
+The program links the GNU C Library (libc, libm), provided by the reader's system software and not
+redistributed by this project. Licensed under the GNU Lesser General Public License 2.1 or later;
+the text is shown in the app and in licenses/LGPL-2.1.txt.
+
+Copyright (C) Free Software Foundation, Inc. and other contributors.
+
+--------------------------------------------------------------------------------
+GCC runtime libraries (GPL-3.0-or-later with the GCC Runtime Library Exception 3.1)
+https://www.gnu.org/licenses/gcc-exception-3.1.html
+
+The program links libstdc++ and libgcc_s, provided by the reader's system software and not
+redistributed by this project. Licensed under the GNU General Public License 3 or later with the
+GCC Runtime Library Exception 3.1. The GPL text is shown in the app and in licenses/GPL-3.0.txt;
+the exception is published at the address above.
+
+Copyright (C) Free Software Foundation, Inc.
