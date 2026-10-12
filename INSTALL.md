@@ -74,5 +74,9 @@ a certificate from a private authority (or a self-signed one), give the app that
 
 ## Troubleshooting
 
-- Nothing happens when starting: read `system/pbnotes/pbnotes.log` on the reader's storage.
+- Nothing happens when starting: read `system/pbnotes/pbnotes.log` on the reader's storage (the launch before is in
+  `pbnotes.log.prev`). If it says `failed to open device file /dev/mali0 ... Permission denied` (exit code 134), the
+  reader's system has lost access to the graphics chip for new apps. PB Notes retries once by itself; if that fails,
+  restart the reader. Other apps built the same way (InkFeed) are affected as well. Please keep both log files and
+  note what you did before (how the app was left, whether a sync was running).
 - The entry does not appear: check the JSON of `view.json` is still valid, then reboot.

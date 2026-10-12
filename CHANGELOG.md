@@ -4,6 +4,15 @@ One entry per release, newest first. The heading is the content of `VERSION`; th
 `v<version>` after the merge. `scripts/check-version-bump.sh` (part of `scripts/pre-merge.sh`) fails when a
 branch changes the product without raising `VERSION` and adding the entry here.
 
+## 1.3.1
+
+- Start: after some use the reader could refuse to start PB Notes (and InkFeed) until it was restarted: the log showed
+  `failed to open device file /dev/mali0 ... Permission denied` and exit code 134. The cause is in the reader's system, not
+  in the app, and is not fixed by this release. The launcher now keeps the log of the launch before as `pbnotes.log.prev`,
+  records the user, the GPU device, uptime, memory and running app processes at every start, keeps the app's start-up lines
+  when it aborts, and retries once after exactly this refusal. If the retry does not help, restart the reader. Nothing
+  changes in the app, the data or the sync.
+
 ## 1.3.0
 
 - Reading page: **fenced code blocks** (backtick or tilde fences, optional language such as `yaml`) are shown as one boxed

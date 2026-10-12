@@ -75,3 +75,4 @@ add_test(NAME check_constitution_selftest COMMAND ${CMAKE_SOURCE_DIR}/scripts/ch
 add_test(NAME check_version_bump_selftest COMMAND ${CMAKE_SOURCE_DIR}/scripts/check-version-bump.sh --self-test)
 set_tests_properties(check_fixtures check_fixtures_selftest check_constitution check_constitution_selftest
                      PROPERTIES LABELS "script")
+add_test(NAME launcher_script COMMAND ${CMAKE_SOURCE_DIR}/tests/launcher/test_launcher.sh ${CMAKE_SOURCE_DIR})
