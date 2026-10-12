@@ -1,5 +1,6 @@
 installed:
 - branch-convention
+- bug
 settings:
   auto_execute_hooks: true
 hooks:
