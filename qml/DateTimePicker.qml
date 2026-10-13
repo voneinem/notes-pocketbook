@@ -5,7 +5,8 @@ import QtQuick
 // (`open(date)`); only days that exist in the chosen month and year can be reached: the day wraps within the month and a
 // month or year change clamps it (31 March -> February gives 28 or 29). The minute moves in steps of five from the
 // value shown (the exact minute of "now" is what Insert writes if nothing is touched); the hour, day and month wrap.
-// Insert reports the text `YYYY-MM-DD HH:MM` (24 hours, from the slash bridge). No button takes focus, nothing animates.
+// Insert reports the text `YYYY-MM-DD HH:MM` (24 hours, from the slash bridge). In the look of the device's dialogs
+// (spec 010: a DialogBox with a close icon, arrows as icons, a footer CANCEL | INSERT). Nothing animates.
 Item {
     id: root
     objectName: "dateTimePicker"
@@ -55,111 +56,85 @@ Item {
 
     function pad(v, n) { var s = String(v); while (s.length < n) s = "0" + s; return s }
 
-    Rectangle {
-        id: panel
-        readonly property real cell: Math.max(96, Math.min(150, ((root.parent ? root.parent.width : 800) - 80 - 4 * 12) / 5))
-        width: 5 * cell + 4 * 12 + 2 * 24
-        height: content.height + 2 * 24
-        radius: 14
-        color: "#ffffff"
-        border.width: 4
-        border.color: "#000000"
+    readonly property real cell: Math.max(96, Math.min(150, ((root.parent ? root.parent.width : 800) - 80 - 4 * 12 - 2 * Style.dialogPadding) / 5))
 
-        Column {
-            id: content
-            x: 24; y: 24
-            spacing: 14
-            Text {
-                width: parent.width
-                horizontalAlignment: Text.AlignHCenter
-                font.pixelSize: 34
-                font.bold: true
-                color: "#000000"
-                text: qsTr("Date and time")
-            }
-            Row {
-                spacing: 12
-                Repeater {
-                    model: [
-                        { key: "Year", label: qsTr("Year") },
-                        { key: "Month", label: qsTr("Month") },
-                        { key: "Day", label: qsTr("Day") },
-                        { key: "Hour", label: qsTr("Hour") },
-                        { key: "Minute", label: qsTr("Min") }
-                    ]
-                    delegate: Column {
-                        spacing: 8
-                        width: panel.cell
-                        function value() {
-                            if (modelData.key === "Year") return root.pad(root.year, 4)
-                            if (modelData.key === "Month") return root.pad(root.month, 2)
-                            if (modelData.key === "Day") return root.pad(root.day, 2)
-                            if (modelData.key === "Hour") return root.pad(root.hour, 2)
-                            return root.pad(root.minute, 2)
-                        }
-                        function step(d) {
-                            if (modelData.key === "Year") root.stepYear(d)
-                            else if (modelData.key === "Month") root.stepMonth(d)
-                            else if (modelData.key === "Day") root.stepDay(d)
-                            else if (modelData.key === "Hour") root.stepHour(d)
-                            else root.stepMinute(d)
-                        }
-                        Text {
-                            width: parent.width
-                            horizontalAlignment: Text.AlignHCenter
-                            font.pixelSize: 24
-                            color: "#000000"
-                            text: modelData.label
-                        }
-                        InkButton {
-                            objectName: "up" + modelData.key
-                            width: parent.width
-                            text: "▲"
-                            focusPolicy: Qt.NoFocus
-                            onClicked: parent.step(1)
-                        }
-                        Text {
-                            objectName: "val" + modelData.key
-                            width: parent.width
-                            horizontalAlignment: Text.AlignHCenter
-                            font.pixelSize: 40
-                            color: "#000000"
-                            text: parent.value()
-                        }
-                        InkButton {
-                            objectName: "down" + modelData.key
-                            width: parent.width
-                            text: "▼"
-                            focusPolicy: Qt.NoFocus
-                            onClicked: parent.step(-1)
-                        }
+    DialogBox {
+        id: panel
+        title: qsTr("Date and time")
+        width: 5 * root.cell + 4 * 12 + 2 * Style.dialogPadding + 2 * Style.heavyWidth
+        footer: [{ text: qsTr("Cancel"), role: "dismiss" }, { text: qsTr("Insert"), role: "accept" }]
+        onCloseRequested: root.cancelled()
+        onFooterClicked: function(role) {
+            if (role === "accept") root.accepted(root.preview)
+            else root.cancelled()
+        }
+
+        Row {
+            spacing: 12
+            Repeater {
+                model: [
+                    { key: "Year", label: qsTr("Year") },
+                    { key: "Month", label: qsTr("Month") },
+                    { key: "Day", label: qsTr("Day") },
+                    { key: "Hour", label: qsTr("Hour") },
+                    { key: "Minute", label: qsTr("Min") }
+                ]
+                delegate: Column {
+                    spacing: 6
+                    width: root.cell
+                    function value() {
+                        if (modelData.key === "Year") return root.pad(root.year, 4)
+                        if (modelData.key === "Month") return root.pad(root.month, 2)
+                        if (modelData.key === "Day") return root.pad(root.day, 2)
+                        if (modelData.key === "Hour") return root.pad(root.hour, 2)
+                        return root.pad(root.minute, 2)
+                    }
+                    function step(d) {
+                        if (modelData.key === "Year") root.stepYear(d)
+                        else if (modelData.key === "Month") root.stepMonth(d)
+                        else if (modelData.key === "Day") root.stepDay(d)
+                        else if (modelData.key === "Hour") root.stepHour(d)
+                        else root.stepMinute(d)
+                    }
+                    Text {
+                        width: parent.width
+                        horizontalAlignment: Text.AlignHCenter
+                        font.pixelSize: Style.captionSize
+                        color: Style.ink
+                        text: modelData.label
+                    }
+                    IconButton {
+                        objectName: "up" + modelData.key
+                        anchors.horizontalCenter: parent.horizontalCenter
+                        text: qsTr("Increase")
+                        icon: "chevron-up"
+                        onClicked: parent.step(1)
+                    }
+                    Text {
+                        objectName: "val" + modelData.key
+                        width: parent.width
+                        horizontalAlignment: Text.AlignHCenter
+                        font.pixelSize: Style.rowTitleSize
+                        color: Style.ink
+                        text: parent.value()
+                    }
+                    IconButton {
+                        objectName: "down" + modelData.key
+                        anchors.horizontalCenter: parent.horizontalCenter
+                        text: qsTr("Decrease")
+                        icon: "chevron-down"
+                        onClicked: parent.step(-1)
                     }
                 }
             }
-            Text {
-                objectName: "preview"
-                width: parent.width
-                horizontalAlignment: Text.AlignHCenter
-                font.pixelSize: 34
-                color: "#000000"
-                text: root.preview
-            }
-            Row {
-                anchors.horizontalCenter: parent.horizontalCenter
-                spacing: 24
-                InkButton {
-                    text: qsTr("Insert")
-                    focusPolicy: Qt.NoFocus
-                    width: 220
-                    onClicked: root.accepted(root.preview)
-                }
-                InkButton {
-                    text: qsTr("Cancel")
-                    focusPolicy: Qt.NoFocus
-                    width: 220
-                    onClicked: root.cancelled()
-                }
-            }
+        }
+        Text {
+            objectName: "preview"
+            width: parent.width
+            horizontalAlignment: Text.AlignHCenter
+            font.pixelSize: Style.bodySize
+            color: Style.ink
+            text: root.preview
         }
     }
 }

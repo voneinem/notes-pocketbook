@@ -52,6 +52,23 @@ Window {
         var r = it.rectAt(offset)
         return scene(it, r.x + 3, r.y + r.height / 2)
     }
+    // a point on the text of one of `units` that the open bubble (with its pointer) does not cover: the bubble's size is not
+    // what these tests are about, so they tap wherever it is not
+    function pointOutsideMenu(units) {
+        var m = menu()
+        for (var i = 0; i < units.length; ++i) {
+            var c = charPoint(units[i], 2)
+            var cands = [c, Qt.point(900, c.y)]
+            for (var j = 0; j < cands.length; ++j) {
+                var p = cands[j]
+                if (!m || !m.visible) return p
+                var tl = m.mapToItem(null, 0, 0)
+                var covered = p.x >= tl.x - 40 && p.x <= tl.x + m.width + 40 && p.y >= tl.y - 40 && p.y <= tl.y + m.height + 40
+                if (!covered) return p
+            }
+        }
+        return charPoint(units[0], 2)
+    }
     function menu() { return findAll(page, function(i) { return i.objectName === "selectionMenu" }, [])[0] }
     function menuLabels() {
         var m = menu()
@@ -101,7 +118,9 @@ Window {
             for (var bad of ["All", "Extend", "Copy", "Select all"]) check(labels.indexOf(bad) < 0, "no " + bad + " button in the footer")
             check(labels.indexOf("Page up") >= 0 && labels.indexOf("Page down") >= 0, "the page buttons are there")
             var footer = findAll(page, function(i) { return i.objectName === "footer" }, [])[0]
-            check(footer.width <= page.width - 60, "the footer fits the page width")
+            // the bottom bar (spec 010) spans the page; what it holds must fit inside it
+            var inside = findAll(footer, function(i) { return i.text !== undefined && i.clicked !== undefined && i.visible }, [])
+            check(inside.length >= 3 && inside.every(function(i) { var x = i.mapToItem(page, 0, 0).x; return x >= 0 && x + i.width <= page.width }), "the bottom bar's controls fit the page width")
         })
 
         // ---- a long press selects the word and shows the markers and the bubble ----
@@ -175,7 +194,7 @@ Window {
         })
 
         // ---- a tap outside ends it ----
-        after(100, function() { tapAt(charPoint(1, 2)) })
+        after(100, function() { tapAt(pointOutsideMenu([1, 0])) })
         after(100, function() {
             check(page.selection === null, "a tap outside ends the selection")
             eq(menuLabels().length, 0, "and the bubble")

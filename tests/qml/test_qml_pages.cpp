@@ -92,6 +92,7 @@ int main(int argc, char** argv) {
     ctx->setContextProperty(QStringLiteral("bridge"), stub->property("bridge").value<QObject*>());
     ctx->setContextProperty(QStringLiteral("attachments"), stub->property("attachments").value<QObject*>());
     ctx->setContextProperty(QStringLiteral("device"), stub->property("device").value<QObject*>());
+    ctx->setContextProperty(QStringLiteral("about"), stub->property("about").value<QObject*>());
     ctx->setContextProperty(QStringLiteral("clipboard"), &clipboard);
     ctx->setContextProperty(QStringLiteral("editSession"), &editSession);
     ctx->setContextProperty(QStringLiteral("slash"), &slash);

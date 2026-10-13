@@ -359,6 +359,27 @@ PB_TEST(font_size_is_validated_persisted_and_mapped_to_pixels) {
     PB_CHECK_EQ(again.property("fontSize").toString().toStdString(), std::string("large"));
 }
 
+// Spec 010: the note list's layout is a remembered choice, a list until the reader switches it.
+PB_TEST(the_list_layout_is_list_on_a_fresh_install_and_remembers_a_change) {
+    pbtest::TmpDir data;
+    int announced = 0;
+    {
+        NotesBridge bridge(config_for(data));
+        QObject::connect(&bridge, &NotesBridge::listLayoutChanged, [&] { ++announced; });
+        PB_CHECK_EQ(bridge.property("listLayout").toString().toStdString(), std::string("list"));
+        PB_CHECK(bridge.setProperty("listLayout", QStringLiteral("tile")));
+        PB_CHECK_EQ(bridge.property("listLayout").toString().toStdString(), std::string("tile"));
+        PB_CHECK_EQ(announced, 1);
+        bridge.setProperty("listLayout", QStringLiteral("tile"));   // the same value again: nothing is announced
+        PB_CHECK_EQ(announced, 1);
+        bridge.setProperty("listLayout", QStringLiteral("grid"));   // not a layout: ignored
+        PB_CHECK_EQ(bridge.property("listLayout").toString().toStdString(), std::string("tile"));
+        PB_CHECK_EQ(announced, 1);
+    }
+    NotesBridge again(config_for(data));   // an app restart reads the stored choice
+    PB_CHECK_EQ(again.property("listLayout").toString().toStdString(), std::string("tile"));
+}
+
 PB_TEST(times_are_shown_in_the_c_library_local_time) {
     pbtest::TmpDir data;
     NotesBridge bridge(config_for(data));

@@ -131,7 +131,7 @@ std::string title_for(const ApiNote& n) {
 const std::map<std::string, std::string>& setting_defaults() {
     static const std::map<std::string, std::string> d = {
         {"font_size", "medium"}, {"sort_order", "modified"}, {"view", "all"}, {"rotation", "auto"}, {"sync_after_save", "on"},
-        {"picker_view", "list"}};
+        {"picker_view", "list"}, {"list_layout", "list"}};
     return d;
 }
 
@@ -141,6 +141,7 @@ bool valid_setting(const std::string& key, const std::string& value) {
     if (key == "rotation") return value == "auto" || value == "portrait" || value == "landscape";
     if (key == "sync_after_save") return value == "on" || value == "off";
     if (key == "picker_view") return value == "list" || value == "tile";
+    if (key == "list_layout") return value == "list" || value == "tile";
     if (key == "view") {
         if (value == "all" || value == "favorites" || value == "uncategorized") return true;
         return value.size() > 9 && value.compare(0, 9, "category:") == 0;

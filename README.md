@@ -31,6 +31,11 @@ when you are on Wi-Fi.
 > - **Auto Sync (feature 008):** a Settings switch (on by default) that starts a sync a few seconds
 >   after a save, switching Wi-Fi on if needed. Implemented and covered by host tests (including a local HTTPS server); the
 >   device walkthrough is open, see [quickstart](specs/008-autosync-on-save/quickstart.md).
+> - **Look of the reader's own apps (feature 010):** the launcher icon without its frame, a top bar with icon controls on
+>   every screen, the note list with a filter/sort row and an optional tile layout, dialogs and pop-up menus with the
+>   device's heavy rounded outline, a slider for the text size, a pill switch for Auto Sync. Implemented and covered by
+>   host tests (the real QML pages driven offscreen); the device walkthrough is open, see
+>   [quickstart](specs/010-builtin-look-gui-overhaul/quickstart.md).
 > - **Tested on the host:** the Qt-free core, the bridge and the QML pages are covered by automated
 >   tests. Run `scripts/pre-merge.sh` to build, run them and check for secrets.
 > - **Not verified:** the Notes API details that need a live server (the fixtures in
@@ -79,12 +84,23 @@ Details: [spec.md](specs/002-rich-note-content/spec.md), [quickstart](specs/002-
   supports the type. Downloaded files work offline. In the editor, *Attach* picks a file from the reader's
   storage; it is copied into the app and uploaded at the next sync, before the note text refers to it.
   The file browser opens on the folders *Audio Books, Downloads, Music, My pictures, Notes, Photo* and
-  *screens* (the files at the top of the storage are not shown). A button at the top switches between a list
+  *screens* (the files at the top of the storage are not shown). An icon in the top bar switches between a list
   and a grid of tiles (the choice is remembered); in the grid, pictures show a small grayscale preview.
   Needs a Nextcloud Notes server with API version 1.4. Interrupted uploads lose nothing; a conflict copy
   keeps its attachments.
 - **Upgrade is one way.** The first start of this version upgrades the local database to schema 2 (a
   backup is made and removed after the check). An older build of the app refuses an upgraded database.
+
+### The look of the app
+
+Since 1.6.0 the app is drawn like the reader's own apps (feature 010: [spec](specs/010-builtin-look-gui-overhaul/spec.md),
+[plan](specs/010-builtin-look-gui-overhaul/plan.md)). The launcher icon is the notes page without a frame. Every screen has a
+top bar (a back chevron or home at the left, the title in capitals, icon controls at the right); lists are split by dotted
+dividers; the note list has a filter and sort row, a count line with the sync state and a **List/Tile** toggle (remembered);
+dialogs have a heavy rounded outline with a close icon and a footer of full-width buttons; menus are rounded bubbles with a
+pointer; the reader and editor have a bottom bar or panel of tools; the text size is a slider with its size in points.
+The icons are SVG line drawings in `qml/icons/` (own work, MIT); the shared constants of the look are in `qml/Style.qml`.
+`scripts/check-ui-style.sh` fails if a bordered text button comes back.
 
 ### Versions
 
@@ -162,8 +178,8 @@ Details: [spec.md](specs/008-autosync-on-save/spec.md), [quickstart](specs/008-a
 - **Settings → Synchronization → "Auto Sync"** is **on** by default and switches on and off at once. When it is
   on, saving or deleting a note, changing its category or favorite mark, or ticking a task box starts the ordinary sync
   by itself, about 4 seconds after the last change and at most once every 15 seconds, so changes made close together
-  share one sync. The save and the editor never wait for the network. The *Sync now* button reads "Syncing..." from
-  the save until the sync ends.
+  share one sync. The save and the editor never wait for the network. The sync state in the note list's count line
+  shows the sync from the save until it ends.
 - **Wi-Fi and the rest.** With Wi-Fi off, the reader asks the device to connect once for the save (as *Sync now* does)
   and syncs when it is up; saves made meanwhile share that request. With no account, or if the connection fails,
   nothing is attempted and no error is shown: the note stays marked as waiting and goes out with the next sync (a later
@@ -257,8 +273,8 @@ documents how to get there. This project follows its approach and adapts these p
 
 - the CMake ARM cross-build setup with the PocketBook SDK, and the manual `moc`/`rcc` steps
   (`cmake/sdk.cmake`, `cmake/qt_manual.cmake`)
-- the InkView glue, rotation and `devicePixelRatio` handling, and the flat e-ink button style
-  (`app/`, `qml/`)
+- the InkView glue, rotation and `devicePixelRatio` handling (`app/`); the first flat e-ink button style of `qml/` was
+  replaced in feature 010 by controls drawn for this project
 - the launcher script that starts the app on the reader (`platform/pocketbook/pbnotes.app`)
 - the packaging script that builds the install zip (`scripts/package-device.sh`)
 

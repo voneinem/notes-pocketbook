@@ -99,6 +99,15 @@ PB_TEST(forget_account_keeps_the_file_browser_layout) {
     PB_CHECK_EQ(store->get_setting("picker_view"), std::string("tile"));
 }
 
+PB_TEST(forget_account_keeps_the_note_list_layout) {
+    pbtest::TmpDir d;
+    auto store = NoteStore::open(d.file("pbnotes.db"));
+    PB_CHECK(store->save_account(make_account("pw")));
+    PB_CHECK(store->set_setting("list_layout", "tile"));
+    PB_CHECK(store->forget_account());
+    PB_CHECK_EQ(store->get_setting("list_layout"), std::string("tile"));   // spec 010
+}
+
 PB_TEST(setup_draft_survives_a_restart_and_is_cleared_without_a_trace) {
     pbtest::TmpDir d;
     const std::string password = "draft-password-DRAFT-9981";

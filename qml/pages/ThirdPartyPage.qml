@@ -9,19 +9,15 @@ Item {
 
     readonly property var rows: about.components
 
-    Text {
-        id: title
-        anchors { left: parent.left; right: parent.right; top: parent.top; margins: 40; topMargin: 30 }
-        text: qsTr("Third-party licenses")
-        wrapMode: Text.Wrap
-        font.pixelSize: 44
-        font.bold: true
-        color: "#000000"
+    TopBar {
+        id: topBar
+        title: qsTr("Third-party licenses")
+        leftItems: [ IconButton { text: qsTr("Back"); icon: "chevron-left"; onClicked: page.StackView.view.pop() } ]
     }
 
     Text {
         id: unreadable
-        anchors { left: parent.left; right: parent.right; top: title.bottom; leftMargin: 40; rightMargin: 40; topMargin: 8 }
+        anchors { left: parent.left; right: parent.right; top: topBar.bottom; leftMargin: 40; rightMargin: 40; topMargin: 8 }
         visible: about.unreadableEntries > 0
         height: visible ? implicitHeight : 0
         wrapMode: Text.Wrap
@@ -76,7 +72,7 @@ Item {
                     color: "#000000"
                 }
             }
-            Rectangle { anchors.bottom: parent.bottom; width: parent.width; height: 1; color: "#808080" }
+            RowDivider { anchors.bottom: parent.bottom; x: 40; width: parent.width - 80 }
             Rectangle { anchors.fill: parent; color: "#d8d8d8"; visible: tap.pressed; z: -1 }
             MouseArea {
                 id: tap
@@ -96,11 +92,10 @@ Item {
         text: qsTr("The list of third-party licenses is unavailable.")
     }
 
-    Row {
+    Item {
         id: footer
-        anchors { bottom: parent.bottom; horizontalCenter: parent.horizontalCenter; bottomMargin: 16 }
-        spacing: 24
-        PageButtons { target: list; snap: 150 }
-        InkButton { text: qsTr("Back"); onClicked: page.StackView.view.pop() }
+        anchors { left: parent.left; right: parent.right; bottom: parent.bottom }
+        height: Style.touchMin
+        PageButtons { anchors.centerIn: parent; target: list; snap: 150 }
     }
 }

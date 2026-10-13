@@ -2,8 +2,8 @@ import QtQuick
 import QtQuick.Controls
 import QtQuick.Window
 
-// Spec 008 (US2): the real Settings page shows "Auto Sync" with its state, a tap flips it, and the page says in
-// words what it does.
+// Spec 008 (US2) and spec 010 (US5): the real Settings page shows "Auto Sync" as a pill switch with its state, a tap flips it,
+// and the page says in words what it does; rotation and Forget account are rows; the top bar has Back.
 Window {
     id: win
     width: 1080; height: 1335
@@ -42,12 +42,13 @@ Window {
     }
     function scene(item, x, y) { return item.mapToItem(null, x, y) }
     function tapAt(p) { pointer.press(p.x, p.y); pointer.release(p.x, p.y) }
-    function syncButton() {
-        return findAll(page, function(i) { return i.text !== undefined && i.clicked !== undefined && String(i.text).indexOf("Auto Sync") === 0 }, [])[0]
-    }
+    function named(name) { return findAll(page, function(i) { return i.objectName === name }, [])[0] }
+    function syncSwitch() { return named("autoSyncSwitch") }
     function texts() {
         return findAll(page, function(i) { return i.text !== undefined && i.clicked === undefined && i.visible }, []).map(function(t) { return String(t.text) })
     }
+    function control(text) { return findAll(page, function(i) { return i.text === text && i.clicked !== undefined && i.visible }, [])[0] }
+    function inkButtons() { return findAll(page, function(i) { return i.visible && String(i).indexOf("InkButton") === 0 }, []) }
 
     Loader { id: ld; anchors.fill: parent; source: pageUrl }
 
@@ -55,24 +56,65 @@ Window {
         after(300, function() {
             page = ld.item
             check(page !== null, "the settings page loads")
-            var b = syncButton()
-            check(b !== undefined, "there is an Auto Sync button")
-            eq(b.text, "Auto Sync: on", "it reads on by default")
+            var title = named("topBarTitle")
+            check(title !== undefined && title.text === "Settings", "a top bar titled Settings")
+            check(control("Back") !== undefined, "with a Back control")
+            eq(inkButtons().length, 0, "no bordered text button is on the page")
+            var sw = syncSwitch()
+            check(sw !== undefined, "there is an Auto Sync switch")
+            eq(sw.checked, true, "it is on by default")
+            check(findAll(sw, function(i) { return i.text === "on" && i.visible }, []).length > 0, "and shows on")
             check(texts().some(function(t) { return t.indexOf("syncs a few seconds after you save") >= 0 }), "the page explains what it does")
-            check(texts().indexOf("Synchronization") >= 0, "the section is titled Synchronization")
-            var b2 = syncButton()
-            tapAt(scene(b2, b2.width / 2, b2.height / 2))
+            check(texts().indexOf("Synchronization") >= 0 || texts().indexOf("synchronization") >= 0 || findAll(page, function(i) { return i.text === "Synchronization" }, []).length > 0, "the section is titled Synchronization")
+            check(findAll(page, function(i) { return i.objectName === "rowDivider" }, []).length >= 3, "rows are separated by dotted dividers")
+            check(sw.enabled, "the switch is usable (also without an account)")
+            var p = sw.mapToItem(null, sw.width / 2, sw.height / 2)
+            tapAt(p)
         })
         after(100, function() {
             eq(bridge.syncAfterSave, false, "a tap switches it off")
-            eq(syncButton().text, "Auto Sync: off", "and the button says so")
-            var b = syncButton()
-            tapAt(scene(b, b.width / 2, b.height / 2))
+            eq(syncSwitch().checked, false, "and the switch says so")
+            check(findAll(syncSwitch(), function(i) { return i.text === "off" && i.visible }, []).length > 0, "off")
+            var p = syncSwitch().mapToItem(null, syncSwitch().width / 2, syncSwitch().height / 2)
+            tapAt(p)
         })
         after(100, function() {
             eq(bridge.syncAfterSave, true, "a second tap switches it on again")
-            eq(syncButton().text, "Auto Sync: on", "and the button says so")
-            check(syncButton().enabled, "the button is usable (also without an account)")
+            eq(syncSwitch().checked, true, "and the switch says so")
+        })
+        // rotation: a row whose value cycles
+        after(100, function() {
+            var row = control("Screen rotation")
+            check(row !== undefined, "the rotation is a row")
+            eq(row.value, "Follow the sensor", "reading Follow the sensor")
+            tapAt(row.mapToItem(null, row.width / 2, row.height / 2))
+        })
+        after(100, function() {
+            eq(bridge.rotationPreference, "portrait", "a tap moves to portrait only")
+            eq(control("Screen rotation").value, "Portrait only", "and the row says so")
+            tapAt(control("Screen rotation").mapToItem(null, 60, 30))
+        })
+        after(100, function() {
+            eq(bridge.rotationPreference, "landscape", "then landscape only")
+            tapAt(control("Screen rotation").mapToItem(null, 60, 30))
+        })
+        after(100, function() { eq(bridge.rotationPreference, "auto", "then back to auto") })
+        // forget account and about
+        after(100, function() {
+            var row = control("Forget account")
+            check(row !== undefined && row.enabled, "Forget account is a row, usable with an account")
+            tapAt(row.mapToItem(null, 60, 30))
+        })
+        after(200, function() {
+            var d = findAll(page, function(i) { return i.title === "Forget this account?" && i.visible }, [])[0]
+            check(d !== undefined, "Forget account asks first")
+            var cancel = findAll(d, function(i) { return i.objectName === "footerButton" && i.text === "Cancel" }, [])[0]
+            tapAt(cancel.mapToItem(null, cancel.width / 2, cancel.height / 2))
+        })
+        after(100, function() {
+            bridge.configured = false
+            check(!control("Forget account").enabled, "Forget account is off without an account")
+            bridge.configured = true
         })
         runner.interval = queue[0].ms
         runner.start()

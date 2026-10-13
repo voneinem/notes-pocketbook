@@ -77,7 +77,8 @@ Window {
     function curView() { var g = gridView(); return g && g.visible ? g : listView() }
     // the Image items (previews) inside `item`
     function images(item) {
-        return item ? findAll(item, function(i) { return i.sourceSize !== undefined && i.fillMode !== undefined && i.asynchronous !== undefined }, []) : []
+        // (the pictures of icons, spec 010, are not previews: an Icon's Image has the Icon as parent)
+        return item ? findAll(item, function(i) { return i.sourceSize !== undefined && i.fillMode !== undefined && i.asynchronous !== undefined && !(i.parent && i.parent.ready !== undefined) }, []) : []
     }
     function fileGlyphOf(tile) { return findAll(tile, function(i) { return i.objectName === "fileGlyph" }, [])[0] }
     function folderGlyphOf(tile) { return findAll(tile, function(i) { return i.objectName === "folderGlyph" }, [])[0] }
@@ -128,6 +129,12 @@ Window {
         })
         after(450, function() {
             check(page !== null, "the page loads")
+            // the top bar of spec 010: Cancel (the back chevron), the title Attach, Up and the layout toggle as icons
+            var tbTitle = findAll(page, function(i) { return i.objectName === "topBarTitle" }, [])[0]
+            check(tbTitle !== undefined && tbTitle.text === "Attach", "a top bar titled Attach")
+            check(button("Cancel") !== undefined && button("Up") !== undefined, "Cancel and Up are controls of the bar")
+            check(button("Cancel").mapToItem(page, 0, 0).y < 112 && button("Up").mapToItem(page, 0, 0).y < 112 && toggle().mapToItem(page, 0, 0).y < 112, "all in the top bar")
+            eq(findAll(page, function(i) { return i.visible && String(i).indexOf("InkButton") === 0 }, []).length, 0, "no bordered text button is on the page")
             eq(pathLine(), "/root", "it starts at the browser's root")
             check(listView() !== undefined, "the list view is shown")
             check(entryItem("Music") !== undefined && entryItem("Photo") !== undefined && entryItem("screens") !== undefined, "the root lists its folders")

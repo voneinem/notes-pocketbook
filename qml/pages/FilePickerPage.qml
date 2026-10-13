@@ -2,7 +2,8 @@ import QtQuick
 import QtQuick.Controls
 import ".."
 
-// A small file browser for the attach button: the current folder's path, "Up", folders and files as big rows
+// A small file browser for the attach button: a top bar (back, ATTACH, Up and the layout toggle as icons), the current folder's
+// path, folders and files as big rows
 // (whole rows per page, no kinetic scrolling). Tapping a file shows its name and size and asks before it is
 // chosen; a file over the size limit is refused with a message first. Emits picked(path) and goes back.
 // The top level (the bridge's root) lists only the folders the bridge offers there (spec 009); "Up" stops at it.
@@ -57,47 +58,31 @@ Item {
         confirm.open()
     }
 
-    Row {
-        id: top
-        x: 30; y: 20
-        width: parent.width - 60
-        spacing: 16
-        InkButton { text: qsTr("Cancel"); onClicked: page.StackView.view.pop() }
-        InkButton { text: qsTr("Up"); enabled: !page.atTop; onClicked: { page.message = ""; page.path = page.parentOf(page.path); page.changedFolder() } }
-    }
-    // the layout toggle: shows the layout a tap switches to (a grid of squares while the list is shown, bars while
-    // tiles are shown); drawn from rectangles, no image asset
-    Button {
-        id: layoutToggle
-        objectName: "layoutToggle"
-        property string glyph: page.view === "list" ? "grid" : "list"
-        x: parent.width - width - 30; y: 20
-        width: 110; height: 78
-        onClicked: page.setView(page.view === "list" ? "tile" : "list")
-        background: Rectangle {
-            radius: 6
-            color: layoutToggle.down ? "#d8d8d8" : "#ffffff"
-            border.width: 2
-            border.color: "#111111"
-        }
-        contentItem: Item {
-            Grid {
-                visible: layoutToggle.glyph === "grid"
-                anchors.centerIn: parent
-                columns: 2; spacing: 6
-                Repeater { model: 4; Rectangle { width: 20; height: 20; color: "#000000" } }
+    TopBar {
+        id: topBar
+        title: qsTr("Attach")
+        leftItems: [ IconButton { text: qsTr("Cancel"); icon: "chevron-left"; onClicked: page.StackView.view.pop() } ]
+        rightItems: [
+            IconButton {
+                text: qsTr("Up"); icon: "chevron-up"
+                enabled: !page.atTop
+                onClicked: { page.message = ""; page.path = page.parentOf(page.path); page.changedFolder() }
+            },
+            // the layout toggle: shows the layout a tap switches to (a grid of squares while the list is shown, bars while
+            // tiles are shown)
+            IconButton {
+                id: layoutToggle
+                objectName: "layoutToggle"
+                property string glyph: page.view === "list" ? "grid" : "list"
+                text: qsTr("Layout")
+                icon: glyph
+                onClicked: page.setView(page.view === "list" ? "tile" : "list")
             }
-            Column {
-                visible: layoutToggle.glyph === "list"
-                anchors.centerIn: parent
-                spacing: 7
-                Repeater { model: 3; Rectangle { width: 42; height: 8; color: "#000000" } }
-            }
-        }
+        ]
     }
     Text {
         id: pathLine
-        anchors { top: top.bottom; topMargin: 12; left: parent.left; right: parent.right; leftMargin: 30; rightMargin: 30 }
+        anchors { top: topBar.bottom; topMargin: 12; left: parent.left; right: parent.right; leftMargin: 30; rightMargin: 30 }
         elide: Text.ElideMiddle
         font.pixelSize: 26
         color: "#000000"
@@ -262,11 +247,11 @@ Item {
                          : qsTr("This folder is empty or cannot be read.")
     }
 
-    Row {
+    Item {
         id: footer
-        anchors { bottom: parent.bottom; horizontalCenter: parent.horizontalCenter; bottomMargin: 16 }
-        spacing: 24
-        PageButtons { target: page.view === "list" ? list : grid; snap: page.view === "list" ? 104 : grid.cellHeight }
+        anchors { left: parent.left; right: parent.right; bottom: parent.bottom }
+        height: Style.touchMin
+        PageButtons { anchors.centerIn: parent; target: page.view === "list" ? list : grid; snap: page.view === "list" ? 104 : grid.cellHeight }
     }
 
     ConfirmDialog {

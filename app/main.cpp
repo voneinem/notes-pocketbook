@@ -48,14 +48,23 @@ int main(int argc, char** argv) {
 #endif
     const int emoji_id = QFontDatabase::addApplicationFont(emoji_font);
     const QStringList emoji_families = emoji_id >= 0 ? QFontDatabase::applicationFontFamilies(emoji_id) : QStringList();
+    // The user interface typeface (spec 010 R-5): the reader's own apps are set in Roboto, so use it when the font
+    // database has it, otherwise the default font as before.
+    const bool roboto = QFontDatabase::families().contains(QStringLiteral("Roboto"));
+    // the family that is really used (the default may be a generic name such as "Sans Serif", which is
+    // not matched by name once a family list is set)
+    const QString ui_family = roboto ? QStringLiteral("Roboto") : QFontInfo(app.font()).family();
     if (!emoji_families.isEmpty()) {
         QFont font = app.font();
-        // the family that is really used (the default may be a generic name such as "Sans Serif", which is
-        // not matched by name once a family list is set)
-        font.setFamilies({QFontInfo(font).family(), emoji_families.first()});
+        font.setFamilies({ui_family, emoji_families.first()});
         app.setFont(font);
     } else {
         pbnotes::log::event("font.emoji_missing", {});
+        if (roboto) {
+            QFont font = app.font();
+            font.setFamilies({ui_family});
+            app.setFont(font);
+        }
     }
 
 #ifdef PLATFORM_POCKETBOOK
@@ -91,6 +100,8 @@ int main(int argc, char** argv) {
         for (const QByteArray& f : QImageReader::supportedImageFormats()) formats << QString::fromLatin1(f);
         pbnotes::log::event("image.formats", {pbnotes::log::text("list", formats.join(QLatin1Char(',')).toStdString())});
     }
+    // which typeface the interface uses (a family name and a flag only; read on the device, spec 010 R-5)
+    pbnotes::log::event("font.ui", {pbnotes::log::text("family", ui_family.toStdString()), pbnotes::log::count("roboto", roboto ? 1 : 0)});
 
     DeviceBridge device;
     wifiProbe = &device;

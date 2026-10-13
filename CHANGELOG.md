@@ -4,6 +4,63 @@ One entry per release, newest first. The heading is the content of `VERSION`; th
 `v<version>` after the merge. `scripts/check-version-bump.sh` (part of `scripts/pre-merge.sh`) fails when a
 branch changes the product without raising `VERSION` and adding the entry here.
 
+## 1.10.0
+
+- Settings, set-up, About, the license pages and the attach file browser now look like the rest of the app and the reader's
+  own screens: a top bar with a Back chevron and the title in capitals, rows split by dotted dividers, and labelled fields
+  with thin rounded outlines. **Auto Sync** is a pill switch showing *on* or *off*; the screen rotation, *Forget account*,
+  *About this app*, *License* and *Third-party licenses* are tappable rows. On the set-up screen *Test connection* and
+  *Save* are a footer above the keyboard and the password is shown or hidden with an eye icon.
+- Attach browser: *Cancel*, *Up* and the List/Tile toggle are icons in the top bar; browsing, previews and attaching work as
+  before.
+- No bordered text button is left anywhere in the app. The attachment actions *Download* and *Open* are tools with an icon.
+- No change to notes, sync or the data.
+
+## 1.9.0
+
+- Reader: a top bar with **Back**, the note's title and **Edit** (a pencil); the category and the favorite star are one
+  quiet line above the text. The bottom bar has the **Text size** tool and the page controls with the position as
+  "3 / 12". Text size is a slider with round minus and plus buttons and the size in points (7, 9 or 12 pt); the three
+  sizes and the stored setting are the same as before (the A- and A+ buttons are gone). The text area is as high as before.
+- Editor: a top bar with **Back** (asks first when there are unsaved changes), **Undo**, **Redo**, the **Favorite** star
+  (filled when marked) and **Save** as icons; the title is a labelled field; **Attach**, **Category** and **Delete** are
+  tools in a panel directly above the keyboard, so none needs an extra tap. The category list opens as a bubble over the
+  Category tool without hiding the keyboard.
+- Undo and Redo, formerly only in the long-press menu, are now also icons of the editor's top bar.
+- No change to notes, sync or the data.
+
+## 1.8.0
+
+- Dialogs and pop-up menus now look like the reader's own. Dialogs (confirmations such as *Discard changes?* and *Delete
+  this note?*, the text entry for a new category, the date and time picker, the emoji grid) have a heavy rounded outline,
+  a bold title with a close icon over a rule and a footer of full-width buttons split by a rule (the one that dismisses
+  on the left, e.g. KEEP EDITING | DISCARD); the page behind is dimmed. Pop-up menus (the text selection menu, the "/" menu,
+  and the lists of views, sort orders, the note list's menu and categories) are rounded bubbles with a pointer to what they
+  belong to; the selection menu shows icons, the "/" menu an icon and a label per row with dotted dividers.
+- Note list: the sort order is chosen from a pop-up like the view, instead of toggling on each tap.
+- What the dialogs and menus offer has not changed. No change to notes, sync or the data.
+
+## 1.7.0
+
+- Note list: the list now looks like the reader's own Notes app. A top bar with **Home** (leaves the app), **Menu**
+  (*Sync now*, *Settings*), the title NOTES, **Search** and **New note** as icons; under it one row with the view
+  (*All*, *Favorites*, a category, ...) and the sort order, each with a drop-down arrow, and a toggle for the layout; then a
+  count line ("12 NOTES") with the sync state and the number of changes not synced yet; then the notes with the title in
+  bold, a quiet category and date line and dotted separators. The bordered text buttons (*New*, *Sync now*, *Settings*,
+  *Quit*, *View:*, *Sort:*, *Clear*) are gone. Search opens from its icon and closes with its own control.
+- Note list: new **Tile layout**. The toggle in the filter row shows the notes as cards (two to three to a row) with title,
+  category, date and favorite star; the choice is remembered, also after a restart. Both layouts page by whole rows.
+- The page-up and page-down buttons everywhere in the app are now two plain arrow icons.
+- The app asks for the Roboto typeface (the one the reader's own apps use) when the reader has it, and logs which
+  typeface it uses. No change to notes, sync or the data.
+
+## 1.6.0
+
+- Launcher: the PB Notes icon in the application menu no longer sits inside a heavy square frame. It is the notes
+  page on its own, drawn as soft-edged line art of about the same size and weight as the built-in apps' icons; the
+  pressed (focused) variant is the same picture inverted. Nothing else changes: no change to notes, settings,
+  sync or the data.
+
 ## 1.5.0
 
 - Attach: the file browser behind **Attach** in the editor now opens on a fixed list of folders — *Audio Books,

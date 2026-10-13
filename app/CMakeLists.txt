@@ -2,7 +2,8 @@
 # when the Qml/Quick dev packages are installed (otherwise only the core library and tests are built).
 
 file(GLOB PBNOTES_QML_FILES CONFIGURE_DEPENDS
-    ${CMAKE_SOURCE_DIR}/qml/*.qml ${CMAKE_SOURCE_DIR}/qml/pages/*.qml)
+    ${CMAKE_SOURCE_DIR}/qml/*.qml ${CMAKE_SOURCE_DIR}/qml/pages/*.qml
+    ${CMAKE_SOURCE_DIR}/qml/qmldir ${CMAKE_SOURCE_DIR}/qml/icons/*.svg)
 set(PBNOTES_APP_SOURCES main.cpp device_bridge.cpp)
 
 if(TARGET_TYPE STREQUAL "ARM")

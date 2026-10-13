@@ -1,7 +1,22 @@
 <RCC>
     <qresource prefix="/qml">
         <file>Main.qml</file>
-        <file>InkButton.qml</file>
+        <file>qmldir</file>
+        <file>Style.qml</file>
+        <file>Icon.qml</file>
+        <file>IconButton.qml</file>
+        <file>RowDivider.qml</file>
+        <file>TopBar.qml</file>
+        <file>DialogBox.qml</file>
+        <file>DialogFrame.qml</file>
+        <file>FooterButton.qml</file>
+        <file>InkField.qml</file>
+        <file>PopupBubble.qml</file>
+        <file>ToolButton.qml</file>
+        <file>BottomPanel.qml</file>
+        <file>InkSlider.qml</file>
+        <file>InkSwitch.qml</file>
+        <file>InkRow.qml</file>
         <file>PageButtons.qml</file>
         <file>BlockText.qml</file>
         <file>TitleBlock.qml</file>
@@ -27,5 +42,55 @@
         <file>pages/AboutPage.qml</file>
         <file>pages/LicenseTextPage.qml</file>
         <file>pages/ThirdPartyPage.qml</file>
+        <file>icons/chevron-down.svg</file>
+        <file>icons/chevron-left.svg</file>
+        <file>icons/chevron-up.svg</file>
+        <file>icons/close.svg</file>
+        <file>icons/filter.svg</file>
+        <file>icons/gear.svg</file>
+        <file>icons/grid.svg</file>
+        <file>icons/home.svg</file>
+        <file>icons/list.svg</file>
+        <file>icons/menu.svg</file>
+        <file>icons/note-plus.svg</file>
+        <file>icons/row-dots.svg</file>
+        <file>icons/search.svg</file>
+        <file>icons/star-filled.svg</file>
+        <file>icons/star.svg</file>
+        <file>icons/sync.svg</file>
+        <file>icons/bubble-pointer.svg</file>
+        <file>icons/check.svg</file>
+        <file>icons/copy.svg</file>
+        <file>icons/cut.svg</file>
+        <file>icons/paste.svg</file>
+        <file>icons/redo.svg</file>
+        <file>icons/select-all.svg</file>
+        <file>icons/slash-bold.svg</file>
+        <file>icons/slash-bullet_list.svg</file>
+        <file>icons/slash-code_block.svg</file>
+        <file>icons/slash-details.svg</file>
+        <file>icons/slash-emoji.svg</file>
+        <file>icons/slash-info_box.svg</file>
+        <file>icons/slash-italic.svg</file>
+        <file>icons/slash-link.svg</file>
+        <file>icons/slash-quote.svg</file>
+        <file>icons/slash-strikethrough.svg</file>
+        <file>icons/slash-table.svg</file>
+        <file>icons/slash-underline.svg</file>
+        <file>icons/trash.svg</file>
+        <file>icons/undo.svg</file>
+        <file>icons/attach.svg</file>
+        <file>icons/info.svg</file>
+        <file>icons/minus-circle.svg</file>
+        <file>icons/pencil.svg</file>
+        <file>icons/plus-circle.svg</file>
+        <file>icons/save.svg</file>
+        <file>icons/tag.svg</file>
+        <file>icons/text-size.svg</file>
+        <file>icons/chevron-right.svg</file>
+        <file>icons/download.svg</file>
+        <file>icons/eye-filled.svg</file>
+        <file>icons/eye.svg</file>
+        <file>icons/folder.svg</file>
     </qresource>
 </RCC>

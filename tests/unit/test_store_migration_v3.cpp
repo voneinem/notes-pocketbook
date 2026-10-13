@@ -122,6 +122,7 @@ PB_TEST(a_version_two_database_opens_as_version_three) {
         PB_CHECK_EQ(store->schema_version(), 3);
         PB_CHECK_EQ(store->get_setting("sync_after_save"), std::string("on"));   // spec 008: an upgrade starts with Auto Sync on
         PB_CHECK_EQ(store->get_setting("picker_view"), std::string("list"));      // spec 009: and with the file browser as a list
+        PB_CHECK_EQ(store->get_setting("list_layout"), std::string("list"));      // spec 010: and the note list as a list
     }
     PB_CHECK_EQ(user_version(d.file("pbnotes.db")), 3);
     PB_CHECK(!exists(d.file("pbnotes.db.bak")));   // no lingering copy of the password

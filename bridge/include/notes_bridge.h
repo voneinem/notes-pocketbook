@@ -40,6 +40,8 @@ class NotesBridge : public QObject {
     // Reader font size: "small" | "medium" | "large" (persisted) and its pixel size.
     Q_PROPERTY(QString fontSize READ fontSize WRITE setFontSize NOTIFY fontSizeChanged)
     Q_PROPERTY(int fontPx READ fontPx NOTIFY fontSizeChanged)
+    // The note list's layout, "list" or "tile" (spec 010); stored with the other settings, list until changed.
+    Q_PROPERTY(QString listLayout READ listLayout WRITE setListLayout NOTIFY listLayoutChanged)
     // Sync state for the status line: running flag, the outcome key (never, running, success, partial,
     // failed, offline, maintenance) and a ready-to-show text (never empty).
     // Notes with changes the server has not confirmed yet (new, edited, deleted).
@@ -181,6 +183,9 @@ public:
     QString fontSize() const;
     void setFontSize(const QString& size);
     int fontPx() const;
+    QString listLayout() const;
+    // Stores "list" or "tile"; the same value or anything else changes nothing and announces nothing.
+    void setListLayout(const QString& layout);
     bool syncRunning() const { return syncRunning_; }
     bool syncActive() const { return syncRunning_ || scheduler_.armed(); }
     QString syncOutcome() const;
@@ -204,6 +209,7 @@ signals:
     void rotationPreferenceChanged();
     void syncAfterSaveChanged();
     void fontSizeChanged();
+    void listLayoutChanged();
     void syncStateChanged();
     void listOptionsChanged();  // view, sort order or search text changed (notesChanged follows)
     void notesChanged();  // the list content changed (sync, edit); call listNotes() again

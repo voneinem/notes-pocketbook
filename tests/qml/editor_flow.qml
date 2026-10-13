@@ -4,7 +4,7 @@ import QtQuick.Window
 
 // Spec 005 (US1, US2): drives the real editor page with real mouse events: a tap places the caret, a long press selects
 // a word and opens the bubble menu with two draggable markers, the menu's Copy/Cut/Paste/Remove/Select all/Undo/Redo
-// work, and the header keeps only Cancel, Save, Favorite, Attach (and Delete for a saved note).
+// work, and the page offers Back, Undo, Redo, Favorite, Save, Attach, Category (and Delete for a saved note) as icon controls.
 Window {
     id: win
     width: 1080; height: 1335
@@ -82,9 +82,10 @@ Window {
             // the header offers only Cancel, Save, Favorite, Attach (Delete is for a saved note)
             var names = findAll(page, function(i) { return i.text !== undefined && i.clicked !== undefined && i.visible }, []).map(function(b) { return b.text })
             console.log("buttons: " + names.join(" | "))
-            for (var bad of ["Undo", "Redo", "All", "Extend", "Copy", "Cut", "Paste", "Del", "Remove", "Select all"])
+            // Undo and Redo are icons of the top bar since spec 010; the editing tools of the menu are not buttons of the page
+            for (var bad of ["All", "Extend", "Copy", "Cut", "Paste", "Del", "Remove", "Select all"])
                 check(names.indexOf(bad) < 0, "no " + bad + " button in the editor itself")
-            check(names.indexOf("Cancel") >= 0 && names.indexOf("Save") >= 0 && names.indexOf("Favorite") >= 0 && names.indexOf("Attach") >= 0, "Cancel, Save, Favorite and Attach are there")
+            check(names.indexOf("Back") >= 0 && names.indexOf("Save") >= 0 && names.indexOf("Favorite") >= 0 && names.indexOf("Attach") >= 0, "Back, Save, Favorite and Attach are there")
             page.activeField = "text"
             page.activeItem.insert(0, "Hello world foo")
             check(menuLabels().length === 0, "no menu to begin with")
@@ -232,7 +233,8 @@ Window {
             var text = page.activeItem
             page.activeField = "title"                 // (so activeItem is the title)
             var t = page.activeItem
-            tapAt(scene(t, 20, t.height / 2))          // a tap in the title field
+            // a tap in the title field (on its right part: the bubble of the selection may hang over the left part)
+            tapAt(scene(t, t.width - 40, t.height / 2))
             page.activeField = "text"
             check(text.selectedText === "", "a tap in the title field ends the text's selection")
             eq(menuLabels().length, 0, "and closes the menu")
@@ -240,7 +242,7 @@ Window {
         after(100, function() { longPressAt(charPoint(page.activeItem, 8)) })
         after(200, function() { chooseInMenu("Select all") })
         after(100, function() {
-            tapAt(Qt.point(900, 30))                   // empty space in the header, beside the buttons
+            tapAt(Qt.point(540, 56))                   // empty space in the top bar, beside the title
         })
         after(100, function() {
             page.activeField = "text"

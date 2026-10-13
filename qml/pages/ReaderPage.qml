@@ -13,6 +13,7 @@ Item {
     property var note: ({ title: "", blocks: [] })
 
     property string message: ""
+    property bool sizePanelOpen: false   // the text size panel above the bottom bar
 
     // ---- <details> sections (spec 006): which ones the reader opened or closed this visit, by the section's key ----
     // Absent = the state the note was written in (`<details open>`). Survives the reloads of the page, never stored.
@@ -189,7 +190,7 @@ Item {
         menu.anchorX = (a.x + b.x) / 2
         menu.selTop = a.y
         menu.selBottom = b.y
-        menu.minY = rule.y + rule.height + 10
+        menu.minY = topBar.y + topBar.height + 10
         menu.maxY = footer.y
         menu.place()
     }
@@ -286,44 +287,25 @@ Item {
     // empty space (below the text, beside the buttons): a tap there ends a selection
     MouseArea {
         anchors.fill: parent
-        onClicked: page.clearSelection()
+        onClicked: { page.sizePanelOpen = false; page.clearSelection() }
     }
 
-    Row {
-        id: top
-        x: 30; y: 20
-        width: parent.width - 60
-        spacing: 16
-        InkButton { id: back; text: qsTr("Back"); onClicked: page.StackView.view.pop() }
-        InkButton {
-            text: qsTr("A-")
-            enabled: bridge.fontSize !== "small"
-            onClicked: bridge.fontSize = bridge.fontSize === "large" ? "medium" : "small"
-        }
-        InkButton {
-            text: qsTr("A+")
-            enabled: bridge.fontSize !== "large"
-            onClicked: bridge.fontSize = bridge.fontSize === "small" ? "medium" : "large"
-        }
-        InkButton {
-            text: qsTr("Edit")
-            onClicked: page.StackView.view.push(Qt.resolvedUrl("EditorPage.qml"), { noteId: page.noteId })
-        }
-        Text {
-            width: Math.max(0, parent.width - 4 * 160)
-            anchors.verticalCenter: parent.verticalCenter
-            elide: Text.ElideRight
-            font.pixelSize: 26
-            color: "#000000"
-            text: (page.note.favorite ? "★ " : "") + (page.note.category || "")
-        }
+    TopBar {
+        id: topBar
+        title: page.note.title || ""
+        leftItems: [ IconButton { text: qsTr("Back"); icon: "chevron-left"; onClicked: page.StackView.view.pop() } ]
+        rightItems: [
+            IconButton {
+                text: qsTr("Edit"); icon: "pencil"
+                onClicked: page.StackView.view.push(Qt.resolvedUrl("EditorPage.qml"), { noteId: page.noteId })
+            }
+        ]
     }
-    Rectangle { id: rule; anchors.top: top.bottom; anchors.topMargin: 12; width: parent.width; height: 2; color: "#111111" }
 
     Flickable {
         id: flick
         objectName: "flick"
-        anchors { left: parent.left; right: parent.right; top: rule.bottom; bottom: footer.top }
+        anchors { left: parent.left; right: parent.right; top: topBar.bottom; bottom: footer.top }
         contentWidth: width
         contentHeight: body.implicitHeight + 40
         interactive: false
@@ -335,6 +317,23 @@ Item {
             x: 50; y: 20
             width: flick.width - 100
             spacing: 0  // blocks bring their own gap; table rows touch
+
+            // The category and the favorite mark (spec 010): one quiet line above the title; it scrolls with the text, so the
+            // text area keeps its whole height.
+            Row {
+                id: captionRow
+                objectName: "captionRow"
+                visible: page.note.favorite === true || (page.note.category || "").length > 0
+                height: visible ? 48 : 0
+                spacing: 12
+                Icon { visible: page.note.favorite === true; width: visible ? 32 : 0; size: 32; source: "star-filled"; anchors.verticalCenter: parent.verticalCenter }
+                Text {
+                    anchors.verticalCenter: parent.verticalCenter
+                    text: page.note.category || ""
+                    font.pixelSize: Style.captionSize
+                    color: Style.ink
+                }
+            }
 
             // The title (spec 005): above the first block, scrolls and pages with the text; none, and no gap, for a
             // note without a title.
@@ -469,12 +468,59 @@ Item {
         onAccepted: page.openUrl(page.pendingUrl)
     }
 
-    Row {
+    // ---- the bottom bar: the Text size tool at the left, the page controls with n / total at the right ----
+    Item {
         id: footer
         objectName: "footer"
-        anchors { bottom: parent.bottom; horizontalCenter: parent.horizontalCenter; bottomMargin: 16 }
-        spacing: 24
-        PageButtons { id: pager; target: flick; unsplittable: page.unsplittable }
+        anchors { left: parent.left; right: parent.right; bottom: parent.bottom }
+        height: Style.bottomBarHeight
+        Rectangle { width: parent.width; height: Style.hairlineWidth; color: Style.hairline }
+        ToolButton {
+            id: sizeTool
+            x: 30
+            anchors.verticalCenter: parent.verticalCenter
+            text: qsTr("Text size"); icon: "text-size"
+            toggled: false
+            onClicked: page.sizePanelOpen = !page.sizePanelOpen
+        }
+        PageButtons {
+            id: pager
+            anchors { right: parent.right; rightMargin: 30; verticalCenter: parent.verticalCenter }
+            target: flick
+            unsplittable: page.unsplittable
+            showIndicator: true
+        }
+    }
+
+    // a tap on the page outside the open panel closes it
+    MouseArea {
+        anchors { left: parent.left; right: parent.right; top: parent.top; bottom: textSizePanel.top }
+        enabled: page.sizePanelOpen
+        visible: page.sizePanelOpen
+        z: 50
+        onClicked: page.sizePanelOpen = false
+    }
+    // ---- the text size as a slider with its size in points (spec 010; the three sizes are the stored setting) ----
+    Rectangle {
+        id: textSizePanel
+        objectName: "textSizePanel"
+        visible: page.sizePanelOpen
+        z: 51
+        anchors { left: parent.left; right: parent.right; bottom: footer.top }
+        height: 150
+        color: Style.paper
+        Rectangle { width: parent.width; height: Style.hairlineWidth; color: Style.hairline }
+        MouseArea { anchors.fill: parent }   // the panel keeps its own taps
+        InkSlider {
+            id: sizeSlider
+            objectName: "textSizeSlider"
+            anchors { left: parent.left; right: parent.right; leftMargin: 30; rightMargin: 30; verticalCenter: parent.verticalCenter }
+            stops: 3
+            readonly property var names: ["small", "medium", "large"]
+            index: Math.max(0, names.indexOf(bridge.fontSize))
+            label: Style.ptFor(bridge.fontPx) + " pt"
+            onMoved: function(i) { bridge.fontSize = names[i] }
+        }
     }
 
     SelectionMenu {

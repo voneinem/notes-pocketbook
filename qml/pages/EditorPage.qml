@@ -125,8 +125,8 @@ Item {
         slashMenu.anchorX = p.x
         slashMenu.caretTop = p.y
         slashMenu.caretBottom = p.y + r.height
-        slashMenu.minY = 20
-        slashMenu.maxY = page.height - page.keyboardHeight
+        slashMenu.minY = topBar.height + 10
+        slashMenu.maxY = bottomPanel.y
         slashMenu.open()
     }
     // Ends whatever popup is open and its history group; the typed text stays. Does nothing when no popup is open.
@@ -224,7 +224,6 @@ Item {
     // ---- category: one tap in a list; no typing for an existing category ----
     function openCategoryPicker() {
         page.message = ""
-        Qt.inputMethod.hide()
         categoryDialog.choices = bridge.categoryChoices(page.category)
         categoryDialog.current = page.category === "" ? "none" : "c:" + page.category
         categoryDialog.open()
@@ -346,8 +345,8 @@ Item {
         menu.anchorX = f.selectionStart < f.selectionEnd ? (pa.x + pb.x) / 2 : pa.x
         menu.selTop = pa.y
         menu.selBottom = pb.y
-        menu.minY = 20
-        menu.maxY = page.height - page.keyboardHeight
+        menu.minY = topBar.height + 10
+        menu.maxY = bottomPanel.y
         menu.place()
     }
     function openMenu() {
@@ -412,105 +411,87 @@ Item {
         onClicked: page.dismissSelection()
     }
 
+    TopBar {
+        id: topBar
+        title: page.noteId > 0 ? qsTr("Edit note") : qsTr("New note")
+        leftItems: [ IconButton { text: qsTr("Back"); icon: "chevron-left"; onClicked: page.requestLeave() } ]
+        rightItems: [
+            IconButton { text: qsTr("Undo"); icon: "undo"; enabled: editSession.canUndo; onClicked: page.undoStep() },
+            IconButton { text: qsTr("Redo"); icon: "redo"; enabled: editSession.canRedo; onClicked: page.redoStep() },
+            IconButton { text: qsTr("Favorite"); icon: "star"; toggled: page.favorite; onClicked: page.favorite = !page.favorite },
+            IconButton { text: qsTr("Save"); icon: "save"; onClicked: page.save() }
+        ]
+    }
+
     Column {
         id: top
-        x: 30; y: 20
+        x: 30
+        anchors.top: topBar.bottom
+        anchors.topMargin: 14
         width: parent.width - 60
         spacing: 12
 
-        Row {
-            spacing: 14
-            InkButton { text: qsTr("Cancel"); onClicked: page.requestLeave() }
-            InkButton { text: qsTr("Save"); onClicked: page.save() }
-            InkButton { text: page.favorite ? qsTr("★ Favorite") : qsTr("Favorite"); onClicked: page.favorite = !page.favorite }
-            InkButton { text: qsTr("Attach"); enabled: attachments.supported; onClicked: page.openPicker() }
-            InkButton {
-                text: qsTr("Delete")
-                visible: page.noteId > 0
-                onClicked: { Qt.inputMethod.hide(); deleteDialog.open() }
-            }
+        // the title: a labelled field (the label above it, as in the device's own dialogs)
+        Text {
+            text: qsTr("Title")
+            font.pixelSize: Style.labelSize
+            color: Style.ink
         }
-        Row {
+        TextField {
+            id: titleField
+            objectName: "titleField"
             width: parent.width
-            spacing: 14
-            Text {
-                text: qsTr("Title")
-                font.pixelSize: 28
-                anchors.verticalCenter: parent.verticalCenter
-                color: "#000000"
+            height: 78
+            font.pixelSize: Style.bodySize
+            color: Style.ink
+            placeholderText: qsTr("required")
+            inputMethodHints: Qt.ImhNoPredictiveText
+            background: Rectangle { color: Style.paper; radius: Style.radiusField; border.width: Style.ruleWidth; border.color: Style.ink }
+            // a title is one line: Return moves on to the text, it never inserts a line break
+            Keys.onReturnPressed: area.forceActiveFocus()
+            Keys.onEnterPressed: area.forceActiveFocus()
+            persistentSelection: false
+            onTextChanged: { if (menu) menu.close(); if (page.historyReady) editSession.observe("title", text) }
+            onActiveFocusChanged: { if (activeFocus) page.activeField = "title"; else deselect() }
+            MouseArea {
+                anchors.fill: parent
+                pressAndHoldInterval: 600
+                property bool held: false
+                onPressed: held = false
+                onPressAndHold: function(mouse) { held = true; page.fieldHeld("title", titleField, mouse.x, mouse.y) }
+                onClicked: function(mouse) { if (!held) page.fieldClicked("title", titleField, mouse.x, mouse.y) }
             }
-            TextField {
-                id: titleField
-                objectName: "titleField"
-                width: parent.width - 120
-                font.pixelSize: 30
-                color: "#000000"
-                placeholderText: qsTr("required")
-                inputMethodHints: Qt.ImhNoPredictiveText
-                background: Rectangle { color: "#ffffff"; border.width: 2; border.color: "#111111" }
-                // a title is one line: Return moves on to the text, it never inserts a line break
-                Keys.onReturnPressed: area.forceActiveFocus()
-                Keys.onEnterPressed: area.forceActiveFocus()
-                persistentSelection: false
-                onTextChanged: { if (menu) menu.close(); if (page.historyReady) editSession.observe("title", text) }
-                onActiveFocusChanged: { if (activeFocus) page.activeField = "title"; else deselect() }
-                MouseArea {
-                    anchors.fill: parent
-                    pressAndHoldInterval: 600
-                    property bool held: false
-                    onPressed: held = false
-                    onPressAndHold: function(mouse) { held = true; page.fieldHeld("title", titleField, mouse.x, mouse.y) }
-                    onClicked: function(mouse) { if (!held) page.fieldClicked("title", titleField, mouse.x, mouse.y) }
-                }
-                SelectionHandles {
-                    target: titleField
-                    multiline: false
-                    active: page.activeField === "title"
-                    onDraggingChanged: if (dragging) menu.close()
-                    onFinished: page.openMenu()
-                }
-            }
-        }
-        Row {
-            width: parent.width
-            spacing: 14
-            Text {
-                text: qsTr("Category")
-                font.pixelSize: 28
-                anchors.verticalCenter: parent.verticalCenter
-                color: "#000000"
-            }
-            InkButton {
-                id: categoryButton
-                width: parent.width - 170
-                text: page.category === "" ? qsTr("No category") : page.category
-                onClicked: page.openCategoryPicker()
+            SelectionHandles {
+                target: titleField
+                multiline: false
+                active: page.activeField === "title"
+                onDraggingChanged: if (dragging) menu.close()
+                onFinished: page.openMenu()
             }
         }
         Text {
             width: parent.width
             visible: !attachments.supported
             wrapMode: Text.Wrap
-            font.pixelSize: 24
-            color: "#000000"
+            font.pixelSize: Style.captionSize
+            color: Style.ink
             text: qsTr("Attachments need a newer Notes app on the server.")
         }
         Text {
             width: parent.width
             visible: page.message.length > 0
             wrapMode: Text.Wrap
-            font.pixelSize: 26
+            font.pixelSize: Style.captionSize
             font.bold: true
-            color: "#000000"
-            text: "✗ " + page.message
+            color: Style.ink
+            text: "\u2717 " + page.message
         }
-        Rectangle { width: parent.width; height: 2; color: "#111111" }
+        Rectangle { width: parent.width; height: Style.hairlineWidth; color: Style.hairline }
     }
 
     Flickable {
         id: flick
-        anchors { left: parent.left; right: parent.right; top: top.bottom; bottom: parent.bottom; topMargin: 8
-                  bottomMargin: page.keyboardHeight }
+        anchors { left: parent.left; right: parent.right; top: top.bottom; bottom: bottomPanel.top; topMargin: 8 }
         contentWidth: width
         contentHeight: Math.max(area.implicitHeight, height)
         clip: true
@@ -556,9 +537,32 @@ Item {
         }
     }
 
+    // Attach, Category and Delete sit directly above the on-screen keyboard (or the bottom edge), so none costs a tap more
+    BottomPanel {
+        id: bottomPanel
+        objectName: "bottomPanel"
+        anchors { left: parent.left; right: parent.right; bottom: parent.bottom; bottomMargin: page.keyboardHeight }
+        z: 5
+        tools: [
+            ToolButton { text: qsTr("Attach"); icon: "attach"; enabled: attachments.supported; onClicked: page.openPicker() },
+            ToolButton {
+                id: categoryButton
+                text: page.category === "" ? qsTr("Category") : page.category
+                icon: "tag"
+                onClicked: page.openCategoryPicker()
+            },
+            ToolButton {
+                text: qsTr("Delete"); icon: "trash"
+                visible: page.noteId > 0
+                onClicked: { Qt.inputMethod.hide(); deleteDialog.open() }
+            }
+        ]
+    }
+
     ChoiceDialog {
         id: categoryDialog
         title: qsTr("Category")
+        anchor: categoryButton
         onChosen: function (value) { page.categoryChosen(value) }
     }
     TextEntryDialog {

@@ -424,6 +424,17 @@ void NotesBridge::setFontSize(const QString& size) {
     if (store_->set_setting("font_size", size.toStdString())) emit fontSizeChanged();
 }
 
+QString NotesBridge::listLayout() const {
+    const std::string v = store_ ? store_->get_setting("list_layout") : std::string();
+    return v == "tile" ? QStringLiteral("tile") : QStringLiteral("list");
+}
+
+void NotesBridge::setListLayout(const QString& layout) {
+    if (!store_ || (layout != QLatin1String("list") && layout != QLatin1String("tile")) || layout == listLayout()) return;
+    if (!store_->set_setting("list_layout", layout.toStdString())) return;
+    emit listLayoutChanged();
+}
+
 int NotesBridge::fontPx() const {
     const QString s = fontSize();
     return s == QLatin1String("small") ? 30 : s == QLatin1String("large") ? 50 : 38;

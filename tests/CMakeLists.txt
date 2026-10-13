@@ -65,6 +65,27 @@ if(TARGET pbnotes_bridge AND NOT TARGET_TYPE STREQUAL "ARM")
         add_test(NAME qml_settings_sync COMMAND test_qml_pages ${CMAKE_CURRENT_SOURCE_DIR}/qml/settings_sync.qml
                  ${CMAKE_SOURCE_DIR}/qml/pages/SettingsPage.qml)
         set_tests_properties(qml_settings_sync PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen" LABELS "bridge")
+        add_test(NAME qml_ui_style COMMAND test_qml_pages ${CMAKE_CURRENT_SOURCE_DIR}/qml/ui_style.qml
+                 ${CMAKE_SOURCE_DIR}/qml/Icon.qml)
+        set_tests_properties(qml_ui_style PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen" LABELS "bridge")
+        add_test(NAME qml_note_list COMMAND test_qml_pages ${CMAKE_CURRENT_SOURCE_DIR}/qml/note_list.qml
+                 ${CMAKE_SOURCE_DIR}/qml/pages/NoteListPage.qml)
+        set_tests_properties(qml_note_list PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen" LABELS "bridge")
+        add_test(NAME qml_ui_dialogs COMMAND test_qml_pages ${CMAKE_CURRENT_SOURCE_DIR}/qml/ui_dialogs.qml
+                 ${CMAKE_SOURCE_DIR}/qml/ConfirmDialog.qml)
+        set_tests_properties(qml_ui_dialogs PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen" LABELS "bridge")
+        add_test(NAME qml_editor_bars COMMAND test_qml_pages ${CMAKE_CURRENT_SOURCE_DIR}/qml/editor_bars.qml
+                 ${CMAKE_SOURCE_DIR}/qml/pages/EditorPage.qml)
+        set_tests_properties(qml_editor_bars PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen" LABELS "bridge")
+        add_test(NAME qml_reader_page COMMAND test_qml_pages ${CMAKE_CURRENT_SOURCE_DIR}/qml/reader_page.qml
+                 ${CMAKE_SOURCE_DIR}/qml/pages/ReaderPage.qml)
+        set_tests_properties(qml_reader_page PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen" LABELS "bridge")
+        add_test(NAME qml_setup_page COMMAND test_qml_pages ${CMAKE_CURRENT_SOURCE_DIR}/qml/setup_page.qml
+                 ${CMAKE_SOURCE_DIR}/qml/pages/SetupPage.qml)
+        set_tests_properties(qml_setup_page PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen" LABELS "bridge")
+        add_test(NAME qml_about_pages COMMAND test_qml_pages ${CMAKE_CURRENT_SOURCE_DIR}/qml/about_pages.qml
+                 ${CMAKE_SOURCE_DIR}/qml/pages/AboutPage.qml)
+        set_tests_properties(qml_about_pages PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen" LABELS "bridge")
         add_test(NAME qml_file_picker COMMAND test_qml_pages ${CMAKE_CURRENT_SOURCE_DIR}/qml/file_picker.qml
                  ${CMAKE_SOURCE_DIR}/qml/pages/FilePickerPage.qml)
         set_tests_properties(qml_file_picker PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen" LABELS "bridge")
@@ -78,6 +99,9 @@ add_test(NAME check_fixtures_selftest
     COMMAND ${CMAKE_SOURCE_DIR}/scripts/check-fixtures.sh --self-test)
 add_test(NAME check_constitution COMMAND ${CMAKE_SOURCE_DIR}/scripts/check-constitution.sh ${CMAKE_SOURCE_DIR})
 add_test(NAME check_constitution_selftest COMMAND ${CMAKE_SOURCE_DIR}/scripts/check-constitution.sh --self-test)
+# Spec 010: no bordered text button anywhere in the QML (FR-006, SC-003), and a self-test proving the checker works.
+add_test(NAME check_ui_style COMMAND ${CMAKE_SOURCE_DIR}/scripts/check-ui-style.sh ${CMAKE_SOURCE_DIR})
+add_test(NAME check_ui_style_selftest COMMAND ${CMAKE_SOURCE_DIR}/scripts/check-ui-style.sh --self-test)
 add_test(NAME check_version_bump_selftest COMMAND ${CMAKE_SOURCE_DIR}/scripts/check-version-bump.sh --self-test)
 set_tests_properties(check_fixtures check_fixtures_selftest check_constitution check_constitution_selftest
                      PROPERTIES LABELS "script")

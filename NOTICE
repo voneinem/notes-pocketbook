@@ -9,7 +9,8 @@ https://github.com/jrohde/InkFeed
 
 Build, launcher and packaging patterns were adapted from InkFeed: the CMake ARM toolchain block
 and manual moc/rcc steps (cmake/sdk.cmake, cmake/qt_manual.cmake), the rotation/devicePixelRatio
-stage and flat button QML (qml/), the InkView glue in app/, the PocketBook launcher script
+stage (qml/Main.qml; the flat button of the first versions was replaced in 1.10.0 by controls written for this project),
+the InkView glue in app/, the PocketBook launcher script
 (platform/pocketbook/pbnotes.app) and the packaging script (scripts/package-device.sh). The way the
 default web browser is started from a link (OpenBook with BROWSER_FOR_AUTH, app/device_bridge.cpp)
 follows InkFeed's browser launch.

@@ -13,19 +13,15 @@ Item {
     property int topIndex: 0
     property bool restoring: false
 
-    Text {
-        id: title
-        anchors { left: parent.left; right: parent.right; top: parent.top; margins: 40; topMargin: 30 }
-        text: page.content.title
-        wrapMode: Text.Wrap
-        font.pixelSize: 44
-        font.bold: true
-        color: "#000000"
+    TopBar {
+        id: topBar
+        title: page.content.title
+        leftItems: [ IconButton { text: qsTr("Back"); icon: "chevron-left"; onClicked: page.StackView.view.pop() } ]
     }
 
     ListView {
         id: list
-        anchors { left: parent.left; right: parent.right; top: title.bottom; bottom: footer.top; topMargin: 16; leftMargin: 40; rightMargin: 40 }
+        anchors { left: parent.left; right: parent.right; top: topBar.bottom; bottom: footer.top; topMargin: 16; leftMargin: 40; rightMargin: 40 }
         clip: true
         model: page.content.paragraphs
         interactive: false
@@ -87,11 +83,10 @@ Item {
         }
     }
 
-    Row {
+    Item {
         id: footer
-        anchors { bottom: parent.bottom; horizontalCenter: parent.horizontalCenter; bottomMargin: 16 }
-        spacing: 24
-        PageButtons { target: list }
-        InkButton { text: qsTr("Back"); onClicked: page.StackView.view.pop() }
+        anchors { left: parent.left; right: parent.right; bottom: parent.bottom }
+        height: Style.touchMin
+        PageButtons { anchors.centerIn: parent; target: list }
     }
 }

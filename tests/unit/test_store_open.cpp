@@ -143,4 +143,24 @@ PB_TEST(picker_view_is_list_by_default_and_accepts_only_list_and_tile) {
     PB_CHECK_EQ(again->get_setting("picker_view"), std::string("list"));
 }
 
+// Spec 010: the note list's layout (list or tiles) is a persisted choice, a list until the reader switches it.
+PB_TEST(list_layout_is_list_by_default_and_accepts_only_list_and_tile) {
+    pbtest::TmpDir d;
+    {
+        auto store = NoteStore::open(d.file("pbnotes.db"));
+        PB_CHECK(store != nullptr);
+        PB_CHECK_EQ(store->get_setting("list_layout"), std::string("list"));
+        PB_CHECK(store->set_setting("list_layout", "tile"));
+        PB_CHECK_EQ(store->get_setting("list_layout"), std::string("tile"));
+        for (const char* bad : {"grid", "", "TILE", "1", "tiles"}) {
+            PB_CHECK(!store->set_setting("list_layout", bad));
+            PB_CHECK_EQ(store->get_setting("list_layout"), std::string("tile"));
+        }
+    }
+    auto again = NoteStore::open(d.file("pbnotes.db"));
+    PB_CHECK_EQ(again->get_setting("list_layout"), std::string("tile"));   // survives a restart
+    PB_CHECK(again->set_setting("list_layout", "list"));
+    PB_CHECK_EQ(again->get_setting("list_layout"), std::string("list"));
+}
+
 PB_TEST_MAIN()

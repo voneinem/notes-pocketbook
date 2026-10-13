@@ -43,9 +43,9 @@ Item {
         else if (y < flick.contentY) flick.contentY = Math.max(0, y - 20)
     }
     onKeyboardHeightChanged: {
-        if (urlField.activeFocus) reveal(urlField)
-        else if (userField.activeFocus) reveal(userField)
-        else if (passField.activeFocus) reveal(passField)
+        if (urlField.field.activeFocus) reveal(urlField)
+        else if (userField.field.activeFocus) reveal(userField)
+        else if (passField.field.activeFocus) reveal(passField)
     }
 
     Connections {
@@ -72,136 +72,152 @@ Item {
         }
     }
 
+    // the same top bar as every screen; this is the first screen, so there is nowhere to go back to
+    TopBar { id: topBar; title: qsTr("Set up") }
+
     Flickable {
         id: flick
-        anchors.fill: parent
+        anchors { left: parent.left; right: parent.right; top: topBar.bottom; bottom: footerBar.top }
         contentWidth: width
-        contentHeight: content.implicitHeight + 40 + page.keyboardHeight
+        contentHeight: content.implicitHeight + 40
         boundsBehavior: Flickable.StopAtBounds
         clip: true
 
         Column {
             id: content
-            x: 40
-            y: 30
-            width: flick.width - 80
+            x: 30
+            y: 24
+            width: flick.width - 60
             spacing: 22
 
             Text {
                 width: parent.width
                 text: qsTr("Connect to Nextcloud")
-                font.pixelSize: 54
+                font.pixelSize: Style.titleSize
                 font.bold: true
-                color: "#000000"
+                color: Style.ink
             }
             Text {
                 width: parent.width
                 wrapMode: Text.Wrap
-                font.pixelSize: 28
-                color: "#000000"
+                font.pixelSize: Style.labelSize
+                color: Style.ink
                 text: qsTr("Enter the address of your Nextcloud server with the Notes app, your user name, and an app password (create one in Nextcloud under Settings, Security).")
             }
 
-            Text { text: qsTr("Server address"); font.pixelSize: 28; font.bold: true; color: "#000000" }
-            TextField {
+            InkField {
                 id: urlField
+                objectName: "urlField"
                 width: parent.width
-                font.pixelSize: 34
+                label: qsTr("Server address")
                 placeholderText: "https://cloud.example.com"
-                inputMethodHints: Qt.ImhUrlCharactersOnly | Qt.ImhNoAutoUppercase | Qt.ImhNoPredictiveText
-                color: "#000000"
-                background: Rectangle { color: "#ffffff"; border.width: 2; border.color: "#111111" }
+                field.inputMethodHints: Qt.ImhUrlCharactersOnly | Qt.ImhNoAutoUppercase | Qt.ImhNoPredictiveText
                 onTextChanged: page.invalidateTest()
-                onActiveFocusChanged: { if (activeFocus) page.reveal(urlField); else page.keepEntries() }
+                Connections {
+                    target: urlField.field
+                    function onActiveFocusChanged() { if (urlField.field.activeFocus) page.reveal(urlField); else page.keepEntries() }
+                }
             }
 
-            Text { text: qsTr("User name"); font.pixelSize: 28; font.bold: true; color: "#000000" }
-            TextField {
+            InkField {
                 id: userField
+                objectName: "userField"
                 width: parent.width
-                font.pixelSize: 34
-                inputMethodHints: Qt.ImhNoAutoUppercase | Qt.ImhNoPredictiveText
-                color: "#000000"
-                background: Rectangle { color: "#ffffff"; border.width: 2; border.color: "#111111" }
+                label: qsTr("User name")
+                field.inputMethodHints: Qt.ImhNoAutoUppercase | Qt.ImhNoPredictiveText
                 onTextChanged: page.invalidateTest()
-                onActiveFocusChanged: { if (activeFocus) page.reveal(userField); else page.keepEntries() }
+                Connections {
+                    target: userField.field
+                    function onActiveFocusChanged() { if (userField.field.activeFocus) page.reveal(userField); else page.keepEntries() }
+                }
             }
 
-            Text { text: qsTr("App password"); font.pixelSize: 28; font.bold: true; color: "#000000" }
-            Row {
+            Item {
                 width: parent.width
-                spacing: 12
-                TextField {
+                height: passField.height
+                InkField {
                     id: passField
-                    width: parent.width - showButton.width - parent.spacing
-                    font.pixelSize: 34
-                    echoMode: page.showPassword ? TextInput.Normal : TextInput.Password
-                    inputMethodHints: Qt.ImhNoAutoUppercase | Qt.ImhNoPredictiveText | Qt.ImhSensitiveData
-                    color: "#000000"
-                    background: Rectangle { color: "#ffffff"; border.width: 2; border.color: "#111111" }
+                    objectName: "passField"
+                    width: parent.width
+                    label: qsTr("App password")
+                    field.echoMode: page.showPassword ? TextInput.Normal : TextInput.Password
+                    field.inputMethodHints: Qt.ImhNoAutoUppercase | Qt.ImhNoPredictiveText | Qt.ImhSensitiveData
+                    field.rightPadding: 110
                     onTextChanged: page.invalidateTest()
-                    onActiveFocusChanged: { if (activeFocus) page.reveal(passField); else page.keepEntries() }
+                    Connections {
+                        target: passField.field
+                        function onActiveFocusChanged() { if (passField.field.activeFocus) page.reveal(passField); else page.keepEntries() }
+                    }
                 }
                 // Show the password in clear text to catch typos; hidden again by tapping once more.
-                InkButton {
-                    id: showButton
-                    width: 150
-                    height: passField.height
-                    text: page.showPassword ? qsTr("Hide") : qsTr("Show")
+                IconButton {
+                    anchors { right: parent.right; rightMargin: 4; bottom: parent.bottom; bottomMargin: -9 }
+                    text: page.showPassword ? qsTr("Hide password") : qsTr("Show password")
+                    icon: "eye"
+                    toggled: page.showPassword
                     onClicked: page.showPassword = !page.showPassword
                 }
             }
             Text {
                 width: parent.width
                 wrapMode: Text.Wrap
-                font.pixelSize: 24
-                color: "#000000"
+                font.pixelSize: Style.captionSize
+                color: Style.ink
                 text: qsTr("The password is stored on this reader without encryption. Use an app password, never your main password.")
-            }
-
-            Row {
-                spacing: 24
-                InkButton {
-                    text: page.connectingWifi ? qsTr("Connecting to Wi-Fi...")
-                                              : page.testing ? qsTr("Testing...") : qsTr("Test connection")
-                    enabled: !page.testing && !page.connectingWifi
-                    onClicked: {
-                        Qt.inputMethod.hide()
-                        if (device.wifiConnected()) { page.runTest(); return }
-                        // Wi-Fi is off: ask the reader to connect first (it may show its own dialog)
-                        page.resultText = ""
-                        page.connectingWifi = true
-                        device.connectNetwork()
-                    }
-                }
-                InkButton {
-                    text: qsTr("Save")
-                    enabled: page.tested && !page.testing
-                    onClicked: {
-                        if (bridge.saveAccount(urlField.text, userField.text, passField.text))
-                            passField.text = ""
-                    }
-                }
             }
 
             Text {
                 width: parent.width
                 visible: page.resultText.length > 0
                 wrapMode: Text.Wrap
-                font.pixelSize: 30
+                font.pixelSize: Style.labelSize
                 font.bold: true
-                color: "#000000"
-                text: (page.resultOk ? "✓ " : "✗ ") + page.resultText
+                color: Style.ink
+                text: (page.resultOk ? "\u2713 " : "\u2717 ") + page.resultText
             }
             Text {
                 width: parent.width
                 wrapMode: Text.Wrap
-                font.pixelSize: 22
-                color: "#000000"
+                font.pixelSize: Style.captionSize
+                color: Style.ink
                 text: qsTr("Trusted certificates: %1. Custom CA file: %2.")
                           .arg(bridge.caSource === "device" ? qsTr("the reader's own") : qsTr("shipped with the app"))
                           .arg(bridge.customCaStatus === "loaded" ? qsTr("loaded (%1)").arg(bridge.customCaCertificates)
                                : bridge.customCaStatus === "invalid" ? qsTr("invalid, ignored") : qsTr("none"))
+            }
+        }
+    }
+
+    // the footer: Test connection and Save, directly above the keyboard
+    Item {
+        id: footerBar
+        anchors { left: parent.left; right: parent.right; bottom: parent.bottom; bottomMargin: page.keyboardHeight }
+        height: Style.footerHeight + Style.hairlineWidth
+        Rectangle { width: parent.width; height: Style.hairlineWidth; color: Style.ink }
+        FooterButton {
+            y: Style.hairlineWidth
+            width: parent.width / 2
+            text: page.connectingWifi ? qsTr("Connecting to Wi-Fi...") : page.testing ? qsTr("Testing...") : qsTr("Test connection")
+            enabled: !page.testing && !page.connectingWifi
+            onClicked: {
+                Qt.inputMethod.hide()
+                if (device.wifiConnected()) { page.runTest(); return }
+                // Wi-Fi is off: ask the reader to connect first (it may show its own dialog)
+                page.resultText = ""
+                page.connectingWifi = true
+                device.connectNetwork()
+            }
+        }
+        Rectangle { x: parent.width / 2; y: Style.hairlineWidth; width: Style.hairlineWidth; height: Style.footerHeight; color: Style.ink }
+        FooterButton {
+            x: parent.width / 2
+            y: Style.hairlineWidth
+            width: parent.width / 2
+            text: qsTr("Save")
+            enabled: page.tested && !page.testing
+            onClicked: {
+                if (bridge.saveAccount(urlField.text, userField.text, passField.text))
+                    passField.text = ""
             }
         }
     }

@@ -123,15 +123,18 @@ Item {
             }
             Row {
                 spacing: 20
-                InkButton {
+                ToolButton {
+                    width: 220
                     visible: (root.block.attState === "placeholder" && !root.tooBig) || (root.block.attState === "error" && root.canRetry)
                     text: root.waiting ? qsTr("Connecting to Wi-Fi...") : qsTr("Download")
+                    icon: "download"
                     enabled: !root.waiting
                     onClicked: root.downloadRequested()
                 }
-                InkButton {
+                ToolButton {
                     visible: root.block.attState === "ready" && root.block.attKind === "file" && root.block.viewable
                     text: qsTr("Open")
+                    icon: "folder"
                     onClicked: root.openRequested()
                 }
             }

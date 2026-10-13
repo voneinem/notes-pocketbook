@@ -10,9 +10,14 @@ Item {
 
     Rectangle { anchors.fill: parent; color: "#ffffff" }
 
+    TopBar {
+        id: topBar
+        leftItems: [ IconButton { text: qsTr("Back"); icon: "chevron-left"; onClicked: page.StackView.view.pop() } ]
+    }
+
     Image {
         id: picture
-        anchors.fill: parent
+        anchors { left: parent.left; right: parent.right; top: topBar.bottom; bottom: parent.bottom }
         source: page.attachmentId > 0 ? "image://attachment/" + page.attachmentId + "?w=" + Math.round(width) : ""
         asynchronous: true
         cache: false
@@ -30,9 +35,4 @@ Item {
         text: qsTr("This picture cannot be shown.")
     }
 
-    InkButton {
-        x: 24; y: 24
-        text: qsTr("Back")
-        onClicked: page.StackView.view.pop()
-    }
 }
