@@ -209,6 +209,8 @@ both files and the note text are on the server and visible on another device.
 
 1. **Given** the user is editing a note, **When** they choose "Add attachment", **Then** they can
    browse the device's storage, select a file, see its name and size, and confirm or cancel.
+   (Refined by feature 009: the browser starts at a fixed list of folders and offers a tile view with
+   previews.)
 2. **Given** the user confirmed, **When** they return to the note, **Then** a reference to the file
    appears in the text at the cursor position and, after saving, the reader shows the image in
    place (or the file entry for other types).
