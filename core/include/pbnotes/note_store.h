@@ -114,7 +114,7 @@ public:
     // Settings: font_size {small,medium,large}, sort_order {modified,title},
     // view {all,favorites,uncategorized,category:<name>}, rotation {auto,portrait,landscape},
     // sync_after_save {off,on} (default on; the Settings control is called "Auto Sync": a saved change starts a sync by
-    // itself, spec 008).
+    // itself, spec 008), picker_view {list,tile} (default list: the layout of the attach file browser, spec 009).
     // get returns the default for unset keys and "" for unknown keys; set rejects unknown keys
     // and invalid values (returns false).
     std::string get_setting(const std::string& key) const;

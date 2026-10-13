@@ -145,22 +145,61 @@ void AttachmentsBridge::discardStaged() {
     enqueue([store, dir]() { pbnotes::AttachmentService::purge(*store, dir); });
 }
 
+QString AttachmentsBridge::pickerView() const {
+    pbnotes::NoteStore* store = notes_->store();
+    const std::string v = store ? store->get_setting("picker_view") : std::string();
+    return v == "tile" ? QStringLiteral("tile") : QStringLiteral("list");
+}
+
+void AttachmentsBridge::setPickerView(const QString& view) {
+    pbnotes::NoteStore* store = notes_->store();
+    if (!store || (view != QLatin1String("list") && view != QLatin1String("tile")) || view == pickerView()) return;
+    if (!store->set_setting("picker_view", view.toStdString())) return;
+    emit pickerViewChanged();
+}
+
+QStringList AttachmentsBridge::defaultTopFolders() {
+    return {QStringLiteral("Audio Books"), QStringLiteral("Downloads"), QStringLiteral("Music"), QStringLiteral("My pictures"),
+            QStringLiteral("Notes"), QStringLiteral("Photo"), QStringLiteral("screens")};
+}
+
 QVariantList AttachmentsBridge::listDirectory(const QString& path) const {
     QVariantList out;
-    if (path.isEmpty()) return out;
+    QStringList previewPaths;   // the image files of this listing, in the order of their entries
+    QList<int> previewAt;       // the position of each in `out`
+    auto finish = [&]() {
+        const QList<int> ids = previewIndex_->replace(previewPaths);   // always: an older listing's ids stop resolving
+        for (int k = 0; k < ids.size(); ++k) {
+            QVariantMap m = out.at(previewAt.at(k)).toMap();
+            m.insert(QStringLiteral("previewId"), ids.at(k));
+            out[previewAt.at(k)] = m;
+        }
+        return out;
+    };
+    if (path.isEmpty()) return finish();
     const QDir dir(path);
-    if (!dir.exists() || !QFileInfo(path).isReadable()) return out;
+    if (!dir.exists() || !QFileInfo(path).isReadable()) return finish();
     const QFileInfoList entries = dir.entryInfoList(QDir::AllDirs | QDir::Files | QDir::NoDotAndDotDot,
                                                     QDir::DirsFirst | QDir::IgnoreCase | QDir::Name);
+    const bool at_root = !config_.topFolders.isEmpty() && QDir::cleanPath(path) == QDir::cleanPath(config_.rootDirectory);
     for (const QFileInfo& e : entries) {
         if (!e.exists() || !e.isReadable()) continue;  // dangling links and entries the user cannot read
+        if (at_root && !(e.isDir() && config_.topFolders.contains(e.fileName(), Qt::CaseInsensitive))) continue;
+        const bool image = !e.isDir() && e.isFile() &&
+                           pbnotes::attachment_kind_for(e.fileName().toStdString()) == pbnotes::AttachmentKind::Image;
         QVariantMap m;
         m.insert(QStringLiteral("name"), e.fileName());
         m.insert(QStringLiteral("dir"), e.isDir());
         m.insert(QStringLiteral("size"), e.isDir() ? 0 : static_cast<qlonglong>(e.size()));
+        m.insert(QStringLiteral("image"), image);
+        m.insert(QStringLiteral("previewId"), 0);
+        if (image) {
+            previewPaths.append(e.absoluteFilePath());
+            previewAt.append(out.size());
+        }
         out.append(m);
     }
-    return out;
+    return finish();
 }
 
 bool AttachmentsBridge::openAttachment(qlonglong attachmentId) {

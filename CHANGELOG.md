@@ -4,6 +4,22 @@ One entry per release, newest first. The heading is the content of `VERSION`; th
 `v<version>` after the merge. `scripts/check-version-bump.sh` (part of `scripts/pre-merge.sh`) fails when a
 branch changes the product without raising `VERSION` and adding the entry here.
 
+## 1.5.0
+
+- Attach: the file browser behind **Attach** in the editor now opens on a fixed list of folders — *Audio Books,
+  Downloads, Music, My pictures, Notes, Photo* and *screens* (those that exist on the reader) — instead of the whole
+  storage. The files at the top of the storage (such as `Autorun.inf` and `install.md`) and other top-level folders
+  are no longer shown, and **Up** stops at this list. Inside these folders everything is listed as before.
+- Attach: a button at the top of the file browser switches between the **List** and a **Tile** view (a grid with a
+  folder or file symbol and the name, about twice as many entries per page). The choice is remembered, also after a
+  restart. Both views page by whole rows and no row is cut off at the bottom of a page.
+- Attach: in the Tile view, pictures (JPG, PNG, GIF, BMP, WebP) show a small grayscale **preview** of the picture.
+  Previews are made only for the tiles on the page, one at a time in the background, so tapping, paging and changing
+  folders never wait for them; a picture that cannot be read keeps its file symbol and can still be attached. Previews
+  are kept in memory only (at most 8 MB) and nothing is written to the storage. Attaching itself, the size limit and
+  the confirmation are unchanged and the original file is attached, never the preview. No change to the server, the
+  data or the sync protocol.
+
 ## 1.4.0
 
 - Settings: new section **Synchronization** with **Auto Sync** (on by default, remembered across restarts, works

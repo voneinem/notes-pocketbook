@@ -27,7 +27,7 @@ endforeach()
 
 # The Qt bridge tests need Qt Core; test_notes_bridge runs real local HTTPS servers like the core TLS tests.
 if(TARGET pbnotes_bridge)
-    foreach(name test_notes_bridge test_reader_blocks test_attachment_image_provider test_attachments_bridge test_about_bridge test_edit_bridge)
+    foreach(name test_notes_bridge test_reader_blocks test_attachment_image_provider test_attachments_bridge test_file_preview_provider test_about_bridge test_edit_bridge)
         add_executable(${name} bridge/${name}.cpp)
         target_link_libraries(${name} PRIVATE pbnotes_bridge OpenSSL::SSL OpenSSL::Crypto Threads::Threads)
         target_include_directories(${name} PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/support)
@@ -65,6 +65,9 @@ if(TARGET pbnotes_bridge AND NOT TARGET_TYPE STREQUAL "ARM")
         add_test(NAME qml_settings_sync COMMAND test_qml_pages ${CMAKE_CURRENT_SOURCE_DIR}/qml/settings_sync.qml
                  ${CMAKE_SOURCE_DIR}/qml/pages/SettingsPage.qml)
         set_tests_properties(qml_settings_sync PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen" LABELS "bridge")
+        add_test(NAME qml_file_picker COMMAND test_qml_pages ${CMAKE_CURRENT_SOURCE_DIR}/qml/file_picker.qml
+                 ${CMAKE_SOURCE_DIR}/qml/pages/FilePickerPage.qml)
+        set_tests_properties(qml_file_picker PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen" LABELS "bridge")
     endif()
 endif()
 

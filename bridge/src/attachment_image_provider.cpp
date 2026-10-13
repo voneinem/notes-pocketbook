@@ -1,5 +1,7 @@
 #include "attachment_image_provider.h"
 
+#include "image_texture_factory.h"
+
 #include <QFileInfo>
 #include <QImageReader>
 #include <QMetaObject>
@@ -48,20 +50,6 @@ QImage load_for_request(pbnotes::NoteStore* store, const QString& dir, const QSt
     if (!is_stored_file_name(file)) return QImage();
     return load_attachment_image(dir + QLatin1Char('/') + file, width);
 }
-
-// A texture factory that holds the decoded image and makes the texture on the render thread (no scene graph
-// context is needed to create it, so the provider also works in tests without a window).
-class ImageTextureFactory : public QQuickTextureFactory {
-public:
-    explicit ImageTextureFactory(QImage image) : image_(std::move(image)) {}
-    QSGTexture* createTexture(QQuickWindow* window) const override { return window->createTextureFromImage(image_); }
-    QSize textureSize() const override { return image_.size(); }
-    int textureByteCount() const override { return static_cast<int>(image_.sizeInBytes()); }
-    QImage image() const override { return image_; }
-
-private:
-    QImage image_;
-};
 
 }  // namespace
 

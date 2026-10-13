@@ -123,4 +123,24 @@ PB_TEST(sync_after_save_is_on_by_default_and_accepts_only_on_and_off) {
     PB_CHECK_EQ(again->get_setting("sync_after_save"), std::string("on"));
 }
 
+// Spec 009: the file browser's layout (list or tiles) is a persisted choice, a list until the reader switches it.
+PB_TEST(picker_view_is_list_by_default_and_accepts_only_list_and_tile) {
+    pbtest::TmpDir d;
+    {
+        auto store = NoteStore::open(d.file("pbnotes.db"));
+        PB_CHECK(store != nullptr);
+        PB_CHECK_EQ(store->get_setting("picker_view"), std::string("list"));
+        PB_CHECK(store->set_setting("picker_view", "tile"));
+        PB_CHECK_EQ(store->get_setting("picker_view"), std::string("tile"));
+        for (const char* bad : {"grid", "", "TILE", "1", "tiles"}) {
+            PB_CHECK(!store->set_setting("picker_view", bad));
+            PB_CHECK_EQ(store->get_setting("picker_view"), std::string("tile"));
+        }
+    }
+    auto again = NoteStore::open(d.file("pbnotes.db"));
+    PB_CHECK_EQ(again->get_setting("picker_view"), std::string("tile"));   // survives a restart
+    PB_CHECK(again->set_setting("picker_view", "list"));
+    PB_CHECK_EQ(again->get_setting("picker_view"), std::string("list"));
+}
+
 PB_TEST_MAIN()

@@ -90,6 +90,15 @@ PB_TEST(forget_account_keeps_the_sync_after_saving_choice) {
     PB_CHECK_EQ(store->get_setting("sync_after_save"), std::string("on"));
 }
 
+PB_TEST(forget_account_keeps_the_file_browser_layout) {
+    pbtest::TmpDir d;
+    auto store = NoteStore::open(d.file("pbnotes.db"));
+    PB_CHECK(store->save_account(make_account("pw")));
+    PB_CHECK(store->set_setting("picker_view", "tile"));
+    PB_CHECK(store->forget_account());
+    PB_CHECK_EQ(store->get_setting("picker_view"), std::string("tile"));
+}
+
 PB_TEST(setup_draft_survives_a_restart_and_is_cleared_without_a_trace) {
     pbtest::TmpDir d;
     const std::string password = "draft-password-DRAFT-9981";

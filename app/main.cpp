@@ -22,6 +22,7 @@
 #include "attachment_image_provider.h"
 #include "about_bridge.h"
 #include "edit_bridge.h"
+#include "file_preview_provider.h"
 #include "attachments_bridge.h"
 #include "notes_bridge.h"
 #include "pbnotes/attachment_service.h"
@@ -108,6 +109,7 @@ int main(int argc, char** argv) {
 #else
     attachment_config.rootDirectory = QDir::homePath();
 #endif
+    attachment_config.topFolders = AttachmentsBridge::defaultTopFolders();   // the file picker's top level (spec 009)
     attachment_config.openFile = [&device](const QString& path) { return device.openFile(path); };
     attachment_config.wifiConnected = [&device]() { return device.wifiConnected(); };
     AttachmentsBridge attachments(&notes, attachment_config);
@@ -139,6 +141,8 @@ int main(int argc, char** argv) {
     engine.rootContext()->setContextProperty(QStringLiteral("clipboard"), &clipboard);
     engine.rootContext()->setContextProperty(QStringLiteral("editSession"), &editSession);
     engine.rootContext()->setContextProperty(QStringLiteral("slash"), &slash);
+    // Previews of the image files the file browser lists (spec 009); the shared index keeps its ids alive for the engine.
+    engine.addImageProvider(QStringLiteral("filepreview"), new FilePreviewProvider(attachments.previewIndex()));
     if (notes.store())  // the engine owns the provider
         engine.addImageProvider(QStringLiteral("attachment"), new AttachmentImageProvider(notes.store(), config.attachmentsDir));
     // Desktop-only start options (PBNOTES_START_PAGE / PBNOTES_START_NOTE); both are always defined,

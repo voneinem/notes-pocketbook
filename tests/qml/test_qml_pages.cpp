@@ -10,6 +10,7 @@
 #include <QQmlComponent>
 #include <QQmlContext>
 #include <QQmlEngine>
+#include <QQuickImageProvider>
 #include <QQuickWindow>
 #include <QUrl>
 #include <QtTest/QtTest>
@@ -40,6 +41,22 @@ private:
     static QPoint pt(double x, double y) { return QPoint(qRound(x), qRound(y)); }
 };
 
+// Stand-in for the file browser's preview provider (spec 009): a small gray picture for the ids 1..30 of the stub
+// listing, a null image (QML status Error) for every other id.
+class StubPreviewProvider : public QQuickImageProvider {
+public:
+    StubPreviewProvider() : QQuickImageProvider(QQuickImageProvider::Image) {}
+    QImage requestImage(const QString& id, QSize* size, const QSize&) override {
+        bool ok = false;
+        const int n = id.toInt(&ok);
+        if (!ok || n < 1 || n > 30) return QImage();
+        QImage img(40, 30, QImage::Format_Grayscale8);
+        img.fill(128);
+        *size = img.size();
+        return img;
+    }
+};
+
 int main(int argc, char** argv) {
     if (qEnvironmentVariableIsEmpty("QT_QPA_PLATFORM")) qputenv("QT_QPA_PLATFORM", "offscreen");
     QGuiApplication app(argc, argv);
@@ -51,9 +68,15 @@ int main(int argc, char** argv) {
     QObject::connect(&engine, &QQmlEngine::exit, &app, &QCoreApplication::exit);  // Qt.exit(code) in the driver
     int warnings = 0;
     QObject::connect(&engine, &QQmlEngine::warnings, [&](const QList<QQmlError>& list) {
-        for (const QQmlError& e : list) std::fprintf(stderr, "QML: %s\n", e.toString().toUtf8().constData());
-        warnings += list.size();
+        for (const QQmlError& e : list) {
+            // a preview the provider cannot make (spec 009: ids without a picture) is an expected, handled state
+            if (e.description().contains(QLatin1String("Failed to get image from provider: image://filepreview/"))) continue;
+            std::fprintf(stderr, "QML: %s\n", e.toString().toUtf8().constData());
+            ++warnings;
+        }
     });
+
+    engine.addImageProvider(QStringLiteral("filepreview"), new StubPreviewProvider);   // the engine owns it
 
     ClipboardBridge clipboard;
     EditSession editSession;

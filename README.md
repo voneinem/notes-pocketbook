@@ -78,6 +78,9 @@ Details: [spec.md](specs/002-rich-note-content/spec.md), [quickstart](specs/002-
   show in place (grayscale) and full screen on a tap; other files open in the reader's viewer when it
   supports the type. Downloaded files work offline. In the editor, *Attach* picks a file from the reader's
   storage; it is copied into the app and uploaded at the next sync, before the note text refers to it.
+  The file browser opens on the folders *Audio Books, Downloads, Music, My pictures, Notes, Photo* and
+  *screens* (the files at the top of the storage are not shown). A button at the top switches between a list
+  and a grid of tiles (the choice is remembered); in the grid, pictures show a small grayscale preview.
   Needs a Nextcloud Notes server with API version 1.4. Interrupted uploads lose nothing; a conflict copy
   keeps its attachments.
 - **Upgrade is one way.** The first start of this version upgrades the local database to schema 2 (a

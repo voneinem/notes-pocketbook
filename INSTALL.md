@@ -58,6 +58,9 @@ upgraded database, so keep a copy of `system/pbnotes/pbnotes.db` if you may want
 Attachments are stored in `system/pbnotes/attachments/` (nothing is downloaded until you tap *Download*).
 Each file is at most 10 MiB. The folder is cleaned automatically; do not put your own files there.
 
+The *Attach* file browser starts at the folders `Audio Books`, `Downloads`, `Music`, `My pictures`, `Notes`, `Photo` and
+`screens` on the reader's storage (those that exist); put the files you want to attach in one of them.
+
 ## Servers with a private or self-signed certificate
 
 PB Notes always verifies the server's certificate and has no switch to skip this. If your server uses
