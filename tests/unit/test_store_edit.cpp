@@ -267,4 +267,133 @@ PB_TEST(an_empty_new_note_is_still_never_stored_even_with_a_title_missing) {
     PB_CHECK(store->list().empty());
 }
 
+// ---- Spec 008: the editor's save must not overwrite a version a sync pulled while the editor was open -------------
+
+namespace {
+// A pull that replaces an unchanged note with a newer server version (new ETag, new text).
+void pulled(NoteStore& store, int64_t remote_id, const std::string& etag, const std::string& content) {
+    ApiNote n = server_note(remote_id, content);
+    n.etag = etag;
+    n.modified = 500;
+    store.apply_remote({n});
+}
+pbnotes::EditBase base_of(const char* content, const char* category = "", bool favorite = false) {
+    pbnotes::EditBase b;
+    b.content = content;
+    b.category = category;
+    b.favorite = favorite;
+    return b;
+}
+}  // namespace
+
+PB_TEST(a_guarded_save_of_the_text_the_editor_loaded_is_an_ordinary_save) {
+    pbtest::TmpDir d;
+    auto store = NoteStore::open(d.file("db"));
+    store->apply_remote({server_note(1, "Old\nbody")});
+    const auto id = store->get_by_remote_id(1)->local_id;
+    auto r = store->save_local_if_unchanged(id, base_of("Old\nbody"), "Old", "Old\nedited", "Work", true, 2000);
+    PB_CHECK(r.error == EditError::None);
+    auto n = store->get(id);
+    PB_CHECK(n->status == NoteStatus::Edited);
+    PB_CHECK_EQ(n->content, std::string("Old\nedited"));
+    PB_CHECK_EQ(n->category, std::string("Work"));
+    PB_CHECK_EQ(n->etag.value_or(""), std::string("e1"));
+}
+
+PB_TEST(a_guarded_save_after_a_pull_replaced_the_text_writes_nothing) {
+    pbtest::TmpDir d;
+    auto store = NoteStore::open(d.file("db"));
+    store->apply_remote({server_note(1, "Old\nbody")});
+    const auto id = store->get_by_remote_id(1)->local_id;
+    pulled(*store, 1, "e1-newer", "Old\nbody changed elsewhere");
+    auto r = store->save_local_if_unchanged(id, base_of("Old\nbody"), "Old", "Old\nmy older text", "", false, 2000);
+    PB_CHECK(r.error == EditError::ChangedOnServer);
+    PB_CHECK_EQ(r.error_key, std::string("changed_on_server"));
+    auto n = store->get(id);
+    PB_CHECK(n->status == NoteStatus::Void);                                  // untouched: still the server's version
+    PB_CHECK_EQ(n->content, std::string("Old\nbody changed elsewhere"));
+    PB_CHECK_EQ(n->etag.value_or(""), std::string("e1-newer"));
+    PB_CHECK_EQ(n->modified, static_cast<int64_t>(500));
+}
+
+PB_TEST(a_guarded_save_after_a_pull_changed_only_the_category_or_favorite_is_also_refused) {
+    pbtest::TmpDir d;
+    auto store = NoteStore::open(d.file("db"));
+    ApiNote n = server_note(1, "Old\nbody");
+    store->apply_remote({n});
+    const auto id = store->get_by_remote_id(1)->local_id;
+    n.etag = "e1b";
+    n.category = "Moved";
+    n.favorite = true;
+    store->apply_remote({n});
+    PB_CHECK(store->save_local_if_unchanged(id, base_of("Old\nbody"), "Old", "Old\nedited", "", false, 2000).error ==
+             EditError::ChangedOnServer);
+}
+
+PB_TEST(a_guarded_save_after_only_the_etag_changed_is_an_ordinary_save) {
+    // the reader's own push was confirmed while the editor was open: same text, new validator
+    pbtest::TmpDir d;
+    auto store = NoteStore::open(d.file("db"));
+    store->apply_remote({server_note(1, "Old\nbody")});
+    const auto id = store->get_by_remote_id(1)->local_id;
+    pulled(*store, 1, "e1-after-my-push", "Old\nbody");
+    PB_CHECK(store->save_local_if_unchanged(id, base_of("Old\nbody"), "Old", "Old\nedited", "", false, 2000).error == EditError::None);
+    PB_CHECK_EQ(store->get(id)->content, std::string("Old\nedited"));
+}
+
+PB_TEST(a_guarded_save_of_a_local_only_note_and_of_an_unknown_note) {
+    pbtest::TmpDir d;
+    auto store = NoteStore::open(d.file("db"));
+    const auto id = store->create_local("Local", "Local\ntext", "", false, 1000).local_id;
+    PB_CHECK(store->save_local_if_unchanged(id, base_of("Local\ntext"), "Local", "Local\nmore", "", false, 2000).error == EditError::None);
+    PB_CHECK(store->save_local_if_unchanged(99999, base_of("x"), "x", "x", "", false, 2000).error == EditError::NotFound);
+}
+
+PB_TEST(an_edit_saved_as_a_conflict_copy_leaves_the_original_alone_and_keeps_every_word) {
+    pbtest::TmpDir d;
+    auto store = NoteStore::open(d.file("db"));
+    store->apply_remote({server_note(1, "Plan\nserver text")});
+    const auto id = store->get_by_remote_id(1)->local_id;
+    const int64_t now = 1760227200;   // 2025-10-12
+    auto r = store->save_edit_as_conflict_copy(id, "Plan", "Plan\nmy text", "Work", true, now);
+    PB_CHECK(r.error == EditError::None);
+    PB_CHECK(r.local_id != id);
+    auto copy = store->get(r.local_id);
+    PB_CHECK(copy.has_value());
+    PB_CHECK(copy->status == NoteStatus::Edited);
+    PB_CHECK(!copy->remote_id.has_value());
+    PB_CHECK_EQ(copy->title, std::string("Plan") + pbnotes::conflict_suffix(now, 1));
+    PB_CHECK_EQ(copy->content, std::string("Plan\nmy text"));
+    PB_CHECK_EQ(copy->category, std::string("Work"));
+    PB_CHECK(copy->favorite);
+    auto original = store->get(id);
+    PB_CHECK(original->status == NoteStatus::Void);
+    PB_CHECK_EQ(original->content, std::string("Plan\nserver text"));
+    PB_CHECK_EQ(store->list().size(), static_cast<size_t>(2));
+}
+
+PB_TEST(a_second_conflict_copy_with_the_same_title_is_numbered) {
+    pbtest::TmpDir d;
+    auto store = NoteStore::open(d.file("db"));
+    store->apply_remote({server_note(1, "Plan\nserver text")});
+    const auto id = store->get_by_remote_id(1)->local_id;
+    const int64_t now = 1760227200;
+    const auto first = store->save_edit_as_conflict_copy(id, "Plan", "Plan\none", "", false, now);
+    const auto second = store->save_edit_as_conflict_copy(id, "Plan", "Plan\ntwo", "", false, now);
+    PB_CHECK(first.error == EditError::None && second.error == EditError::None);
+    PB_CHECK_EQ(store->get(first.local_id)->title, std::string("Plan") + pbnotes::conflict_suffix(now, 1));
+    PB_CHECK_EQ(store->get(second.local_id)->title, std::string("Plan") + pbnotes::conflict_suffix(now, 2));
+}
+
+PB_TEST(a_conflict_copy_of_an_invalid_edit_is_refused_and_stores_nothing) {
+    pbtest::TmpDir d;
+    auto store = NoteStore::open(d.file("db"));
+    store->apply_remote({server_note(1, "Plan\nserver text")});
+    const auto id = store->get_by_remote_id(1)->local_id;
+    PB_CHECK(store->save_edit_as_conflict_copy(id, "Plan", "   ", "", false, 1).error == EditError::EmptyContent);
+    PB_CHECK(store->save_edit_as_conflict_copy(id, "Plan", "text", " bad ", false, 1).error == EditError::InvalidCategory);
+    PB_CHECK(store->save_edit_as_conflict_copy(id, "", "text", "", false, 1).error == EditError::InvalidTitle);
+    PB_CHECK_EQ(store->list().size(), static_cast<size_t>(1));
+}
+
 PB_TEST_MAIN()

@@ -9,10 +9,15 @@
 #include <QVariantMap>
 #include <QStringList>
 #include <atomic>
+#include <functional>
+#include <map>
 #include <memory>
 #include <thread>
 
 #include "pbnotes/note_store.h"
+#include "pbnotes/sync_scheduler.h"
+
+class QTimer;
 
 class NotesBridge : public QObject {
     Q_OBJECT
@@ -28,6 +33,9 @@ class NotesBridge : public QObject {
     Q_PROPERTY(bool busy READ busy NOTIFY busyChanged)
     // "auto" (follow the sensor), "portrait" or "landscape" (locked); persisted
     Q_PROPERTY(QString rotationPreference READ rotationPreference WRITE setRotationPreference NOTIFY rotationPreferenceChanged)
+    // "Auto Sync" (spec 008): when on, a saved change starts a sync by itself a few seconds later (Wi-Fi
+    // connected, account set up); on by default, persisted, independent of the account.
+    Q_PROPERTY(bool syncAfterSave READ syncAfterSave WRITE setSyncAfterSave NOTIFY syncAfterSaveChanged)
 
     // Reader font size: "small" | "medium" | "large" (persisted) and its pixel size.
     Q_PROPERTY(QString fontSize READ fontSize WRITE setFontSize NOTIFY fontSizeChanged)
@@ -37,6 +45,9 @@ class NotesBridge : public QObject {
     // Notes with changes the server has not confirmed yet (new, edited, deleted).
     Q_PROPERTY(int pendingCount READ pendingCount NOTIFY notesChanged)
     Q_PROPERTY(bool syncRunning READ syncRunning NOTIFY syncStateChanged)
+    // A sync is running OR an automatic one is triggered and on its way (waiting out the quiet period, Wi-Fi connecting):
+    // the Sync now button reads "Syncing..." for all of it.
+    Q_PROPERTY(bool syncActive READ syncActive NOTIFY syncStateChanged)
     Q_PROPERTY(QString syncOutcome READ syncOutcome NOTIFY syncStateChanged)
     Q_PROPERTY(QString syncStatus READ syncStatus NOTIFY syncStateChanged)
     Q_PROPERTY(QString view READ view NOTIFY notesChanged)  // also changes when a category runs empty
@@ -51,6 +62,11 @@ public:
         QString bundledCaPath;          // the CA file shipped with the app
         QStringList deviceCaCandidates; // the reader's own CA files, tried first
         QString attachmentsDir;         // downloaded and staged attachment files; empty = <dataDir>/attachments
+        // "Auto Sync" (spec 008). wifiConnected: empty = always online. The timings are the scheduler's quiet period and the gap between two
+        // sync starts; tests shorten them.
+        std::function<bool()> wifiConnected;
+        int autoSyncQuietMs = 4000;
+        int autoSyncGapMs = 15000;
     };
 
     explicit NotesBridge(const Config& config, QObject* parent = nullptr);
@@ -75,6 +91,12 @@ public:
     bool busy() const { return busy_; }
     QString rotationPreference() const;
     void setRotationPreference(const QString& preference);
+    bool syncAfterSave() const;
+    // Auto Sync may ask the device to switch Wi-Fi on when it is off (the same request "Sync now" makes). The device
+    // answers with networkAnswered(); an answer nobody asked for is ignored.
+    void setWifiRequest(std::function<void()> request) { wifiRequest_ = std::move(request); }
+    void networkAnswered(bool connected);
+    void setSyncAfterSave(bool on);
 
     // Checks the URL and credentials, then asks the server (capabilities) over a verified TLS
     // connection. Asynchronous: the result arrives as connectionTested().
@@ -160,10 +182,15 @@ public:
     void setFontSize(const QString& size);
     int fontPx() const;
     bool syncRunning() const { return syncRunning_; }
+    bool syncActive() const { return syncRunning_ || scheduler_.armed(); }
     QString syncOutcome() const;
     QString syncStatus() const;
     // Conflict copies created by the last finished sync (0 if none).
     int conflictCount() const;
+
+    // The editor page tells the bridge it is open / closed (spec 008). While one is open no automatic sync starts: a
+    // pull could replace the note being edited. Closing asks the scheduler again.
+    Q_INVOKABLE void setEditorOpen(bool open);
 
     // English text for a message key (connection test, errors).
     Q_INVOKABLE QString message(const QString& key) const;
@@ -175,6 +202,7 @@ signals:
     void caChanged();
     void busyChanged();
     void rotationPreferenceChanged();
+    void syncAfterSaveChanged();
     void fontSizeChanged();
     void syncStateChanged();
     void listOptionsChanged();  // view, sort order or search text changed (notesChanged follows)
@@ -186,6 +214,9 @@ signals:
     void conflictsDetected(int conflicts, int restored);
 
 private:
+    // Spec 008: a local change was persisted; ask the scheduler whether (and when) to start the existing sync.
+    void noteSaved();
+    void evaluateAutoSync();
     void refreshCa();
     void setBusy(bool busy);
 
@@ -200,4 +231,16 @@ private:
     std::atomic<bool> syncRunning_{false};
     QString searchText_;
     std::thread syncWorker_;
+    pbnotes::SyncScheduler scheduler_;
+    bool editorOpen_ = false;
+    std::function<void()> wifiRequest_;   // asks the device to connect; empty = cannot, offline starts are dropped
+    bool lastActive_ = false;             // what syncStateChanged last announced for syncActive
+    void publishActive();
+    void evaluateAutoSyncStep();
+    bool awaitingNetwork_ = false;        // a connection request is out
+    bool networkTried_ = false;           // asked once since the last save: a second failure drops the start
+    // What the editor loaded for a note (text, category, favorite): a save compares it with the stored note, so text
+    // based on a version a sync has replaced meanwhile becomes a conflict copy instead of overwriting (spec 008).
+    mutable std::map<qlonglong, pbnotes::EditBase> editBase_;
+    QTimer* autoTimer_ = nullptr;
 };

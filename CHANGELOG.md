@@ -4,6 +4,24 @@ One entry per release, newest first. The heading is the content of `VERSION`; th
 `v<version>` after the merge. `scripts/check-version-bump.sh` (part of `scripts/pre-merge.sh`) fails when a
 branch changes the product without raising `VERSION` and adding the entry here.
 
+## 1.4.0
+
+- Settings: new section **Synchronization** with **Auto Sync** (on by default, remembered across restarts, works
+  without an account). When it is on, saving or deleting a note, changing its category or favorite
+  mark, or ticking a task box starts the ordinary sync by itself, about 4 seconds after the last change and at most once
+  every 15 seconds, so changes made close together share one sync. Saving and the editor do not wait for the network.
+  With Wi-Fi off, the reader asks the device to connect once (as *Sync now* does) and syncs when it is up. Without an
+  account, or if the connection fails, nothing is attempted and no error is shown: the note stays marked as waiting and goes
+  out with the next sync (a later save, *Sync now*, or the sync at app start). It never retries on a timer and starts no
+  automatic sync while an editor is open. A failed sync shows its reason in the status line, as for
+  *Sync now*. The **Sync now** button reads "Syncing..." (and is disabled) from the moment a save triggers an automatic
+  sync, through the short wait and the Wi-Fi connection, until the sync ends. With the switch off, saving behaves exactly
+  as before.
+- Safety: if a sync replaced a note while you were editing it, saving keeps the server's version as the note and your text as
+  a new note marked "(conflict ...)", and tells you once (the same notice as for a conflict found by a sync). Before, the older
+  text would have been sent over the newer server version.
+- No change to the server, the data format or the sync protocol; the preference is one new stored setting.
+
 ## 1.3.1
 
 - Start: after some use the reader could refuse to start PB Notes (and InkFeed) until it was restarted: the log showed

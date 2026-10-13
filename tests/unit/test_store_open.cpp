@@ -103,4 +103,24 @@ PB_TEST(corrupt_database_is_reported_not_ignored) {
     PB_CHECK(!err.empty());
 }
 
+// Spec 008: "Auto Sync" is a persisted on/off choice, on until the reader switches it off.
+PB_TEST(sync_after_save_is_on_by_default_and_accepts_only_on_and_off) {
+    pbtest::TmpDir d;
+    {
+        auto store = NoteStore::open(d.file("pbnotes.db"));
+        PB_CHECK(store != nullptr);
+        PB_CHECK_EQ(store->get_setting("sync_after_save"), std::string("on"));
+        PB_CHECK(store->set_setting("sync_after_save", "off"));
+        PB_CHECK_EQ(store->get_setting("sync_after_save"), std::string("off"));
+        for (const char* bad : {"yes", "", "ON", "1", "true"}) {
+            PB_CHECK(!store->set_setting("sync_after_save", bad));
+            PB_CHECK_EQ(store->get_setting("sync_after_save"), std::string("off"));
+        }
+    }
+    auto again = NoteStore::open(d.file("pbnotes.db"));
+    PB_CHECK_EQ(again->get_setting("sync_after_save"), std::string("off"));
+    PB_CHECK(again->set_setting("sync_after_save", "on"));
+    PB_CHECK_EQ(again->get_setting("sync_after_save"), std::string("on"));
+}
+
 PB_TEST_MAIN()

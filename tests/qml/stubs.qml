@@ -16,6 +16,19 @@ QtObject {
         property var noteToOpen: ({})
         function openNote(id) { return noteToOpen }
         function toggleTask(id, line) { return true }
+        // Settings page (spec 008 adds syncAfterSave; the others are what the page already reads)
+        property string caSource: "device"
+        property string customCaStatus: "none"
+        property int customCaCertificates: 0
+        property string customCaPath: "/data/custom-ca.pem"
+        property string rotationPreference: "auto"
+        property bool configured: true
+        property string username: "alice"
+        property string serverUrl: "https://notes.example"
+        function forgetAccount() {}
+        property bool syncAfterSave: true
+        property var editorOpenCalls: []
+        function setEditorOpen(open) { var l = editorOpenCalls.slice(); l.push(open); editorOpenCalls = l }
         property string lastCopyArgs: ""
         function readerCopy(id, fu, fo, tu, to) { lastCopyArgs = [id, fu, fo, tu, to].join(","); return "COPIED" }
     }

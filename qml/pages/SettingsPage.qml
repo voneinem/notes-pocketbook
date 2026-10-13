@@ -2,7 +2,7 @@ import QtQuick
 import QtQuick.Controls
 import ".."
 
-// Certificates, screen rotation, the account (with "Forget account"), and About.
+// Certificates, screen rotation, "Auto Sync", the account (with "Forget account"), and About.
 Item {
     id: page
 
@@ -63,6 +63,19 @@ Item {
                       : qsTr("Rotation: landscape only")
                 onClicked: bridge.rotationPreference = bridge.rotationPreference === "auto" ? "portrait"
                            : bridge.rotationPreference === "portrait" ? "landscape" : "auto"
+            }
+
+            Text { text: qsTr("Synchronization"); font.pixelSize: 36; font.bold: true; color: "#000000" }
+            InkButton {
+                text: bridge.syncAfterSave ? qsTr("Auto Sync: on") : qsTr("Auto Sync: off")
+                onClicked: bridge.syncAfterSave = !bridge.syncAfterSave
+            }
+            Text {
+                width: parent.width
+                wrapMode: Text.Wrap
+                font.pixelSize: 28
+                color: "#000000"
+                text: qsTr("When on, the reader syncs a few seconds after you save a change, switching Wi-Fi on if needed. When off, notes sync only with Sync now and at start.")
             }
 
             Text { text: qsTr("Account"); font.pixelSize: 36; font.bold: true; color: "#000000" }

@@ -130,7 +130,7 @@ std::string title_for(const ApiNote& n) {
 
 const std::map<std::string, std::string>& setting_defaults() {
     static const std::map<std::string, std::string> d = {
-        {"font_size", "medium"}, {"sort_order", "modified"}, {"view", "all"}, {"rotation", "auto"}};
+        {"font_size", "medium"}, {"sort_order", "modified"}, {"view", "all"}, {"rotation", "auto"}, {"sync_after_save", "on"}};
     return d;
 }
 
@@ -138,6 +138,7 @@ bool valid_setting(const std::string& key, const std::string& value) {
     if (key == "font_size") return value == "small" || value == "medium" || value == "large";
     if (key == "sort_order") return value == "modified" || value == "title";
     if (key == "rotation") return value == "auto" || value == "portrait" || value == "landscape";
+    if (key == "sync_after_save") return value == "on" || value == "off";
     if (key == "view") {
         if (value == "all" || value == "favorites" || value == "uncategorized") return true;
         return value.size() > 9 && value.compare(0, 9, "category:") == 0;
@@ -860,6 +861,82 @@ EditResult NoteStore::save_local(int64_t local_id, const std::string& title, con
     return update_locked(local_id, title, content, category, favorite, now);
 }
 
+EditResult NoteStore::save_local_if_unchanged(int64_t local_id, const EditBase& base, const std::string& title,
+                                              const std::string& content, const std::string& category, bool favorite,
+                                              int64_t now) {
+    std::lock_guard<std::mutex> lock(mutex_);
+    {
+        Stmt st(db_, "SELECT status,content,category,favorite FROM notes WHERE local_id=?1");
+        if (!st.ok()) return edit_error(EditError::StorageError, "storage_error");
+        st.bind_int64(1, local_id);
+        if (st.step() != SQLITE_ROW) return edit_error(EditError::NotFound, "not_found");
+        if (st.text(0) != "deleted") {   // a deleted note is refused by update_locked as before
+            const bool same = st.text(1) == base.content && st.text(2) == base.category && (st.int64(3) != 0) == base.favorite;
+            if (!same) {
+                EditResult r = edit_error(EditError::ChangedOnServer, "changed_on_server");
+                r.local_id = local_id;
+                return r;
+            }
+        }
+    }
+    return update_locked(local_id, title, content, category, favorite, now);
+}
+
+EditResult NoteStore::save_edit_as_conflict_copy(int64_t original_local_id, const std::string& title,
+                                                 const std::string& content, const std::string& category, bool favorite,
+                                                 int64_t now) {
+    const std::string trimmed_title = trim_title(title);
+    const std::string title_error = validate_title(title);
+    if (!title_error.empty()) {
+        EditResult r;
+        r.error = EditError::InvalidTitle;
+        r.error_key = title_error;
+        return r;
+    }
+    if (only_whitespace(content)) return edit_error(EditError::EmptyContent, "content_empty");
+    const std::string cat_error = validate_category(category);
+    if (!cat_error.empty()) {
+        EditResult r;
+        r.error = EditError::InvalidCategory;
+        r.error_key = cat_error;
+        return r;
+    }
+    std::lock_guard<std::mutex> lock(mutex_);
+    std::string err;
+    if (!exec(db_, "BEGIN IMMEDIATE", &err)) return edit_error(EditError::StorageError, "storage_error");
+    auto fail = [&]() {
+        std::string ignored;
+        exec(db_, "ROLLBACK", &ignored);
+        return edit_error(EditError::StorageError, "storage_error");
+    };
+    std::string copy_title;
+    if (!unused_conflict_title_locked(trimmed_title, now, &copy_title)) return fail();
+    int64_t copy_id = 0;
+    {
+        Stmt ins(db_,
+                 "INSERT INTO notes(status,title,content,category,favorite,modified,excerpt) "
+                 "VALUES('edited',?1,?2,?3,?4,?5,?6)");
+        if (!ins.ok()) return fail();
+        ins.bind_text(1, copy_title);
+        ins.bind_text(2, content);
+        ins.bind_text(3, category);
+        ins.bind_int64(4, favorite ? 1 : 0);
+        ins.bind_int64(5, now);
+        ins.bind_text(6, make_excerpt(content, trimmed_title));
+        if (ins.step() != SQLITE_DONE) return fail();
+        copy_id = sqlite3_last_insert_rowid(db_);
+    }
+    if (!bind_staged_locked(copy_id, content)) return fail();   // staged attachments the text names
+    Note shown;   // what the copy's text names, for the duplicate rows
+    shown.content = content;
+    shown.title = trimmed_title;
+    if (!copy_attachments_for_conflict_locked(original_local_id, copy_id, shown, now)) return fail();
+    if (!exec(db_, "COMMIT", &err)) return fail();
+    EditResult r;
+    r.local_id = copy_id;
+    return r;
+}
+
 EditResult NoteStore::set_favorite(int64_t local_id, bool favorite, int64_t now) {
     std::lock_guard<std::mutex> lock(mutex_);
     return update_locked(local_id, std::nullopt, std::nullopt, std::nullopt, favorite, now);
@@ -970,6 +1047,21 @@ bool NoteStore::restore_from_server(int64_t local_id, const ApiNote& server) {
     return st.step() == SQLITE_DONE && sqlite3_changes(db_) == 1;
 }
 
+bool NoteStore::unused_conflict_title_locked(const std::string& base_title, int64_t now, std::string* out) {
+    for (int number = 1; number <= 10001; ++number) {
+        const std::string candidate = base_title + conflict_suffix(now, number);
+        Stmt taken(db_, "SELECT COUNT(*) FROM notes WHERE title=?1");
+        if (!taken.ok()) return false;
+        taken.bind_text(1, candidate);
+        if (taken.step() != SQLITE_ROW) return false;
+        if (taken.int64(0) == 0) {
+            *out = candidate;
+            return true;
+        }
+    }
+    return false;
+}
+
 ConflictResolution NoteStore::resolve_conflict(int64_t local_id, const ApiNote& server, int64_t now) {
     ConflictResolution out;
     std::lock_guard<std::mutex> lock(mutex_);
@@ -998,19 +1090,9 @@ ConflictResolution NoteStore::resolve_conflict(int64_t local_id, const ApiNote& 
                            local.category == server.category && local.favorite == server.favorite;
     if (!identical) {
         // 2. pick an unused conflict title ("... (conflict DATE)", then " #2", " #3", ...)
-        const std::string& base_title = local.title;
-        int number = 1;
-        std::string suffix;
-        for (;; ++number) {
-            suffix = conflict_suffix(now, number);
-            Stmt taken(db_, "SELECT COUNT(*) FROM notes WHERE title=?1");
-            if (!taken.ok()) return rollback();
-            taken.bind_text(1, base_title + suffix);
-            if (taken.step() != SQLITE_ROW) return rollback();
-            if (taken.int64(0) == 0) break;
-            if (number > 10000) return rollback();
-        }
-        const std::string copy_title = base_title + suffix;   // the text is copied as it is
+        std::string copy_title;
+        if (!unused_conflict_title_locked(local.title, now, &copy_title)) return rollback();
+        // the text is copied as it is
 
         // 3. insert the copy FIRST
         int64_t copy_id = 0;

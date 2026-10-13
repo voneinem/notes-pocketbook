@@ -76,6 +76,10 @@ int main(int argc, char** argv) {
     config.deviceCaCandidates = {QStringLiteral("/etc/ssl/certs/ca-certificates.crt"), QStringLiteral("/etc/ssl/cert.pem")};
     config.attachmentsDir = data_dir + QStringLiteral("/attachments");
     mkdir(config.attachmentsDir.toStdString().c_str(), 0755);
+    // Auto Sync asks whether Wi-Fi is up before it starts a sync. The device bridge is created after the notes bridge
+    // (it reads the rotation preference), so the callback reaches it through a pointer.
+    DeviceBridge* wifiProbe = nullptr;
+    config.wifiConnected = [&wifiProbe]() { return wifiProbe != nullptr && wifiProbe->wifiConnected(); };
     NotesBridge notes(config);
     if (!notes.ok()) std::cerr << "[pbnotes] the database could not be opened" << std::endl;
 
@@ -88,6 +92,10 @@ int main(int argc, char** argv) {
     }
 
     DeviceBridge device;
+    wifiProbe = &device;
+    // With Wi-Fi off (the reader's usual state) Auto Sync asks the device to connect, as "Sync now" does.
+    notes.setWifiRequest([&device]() { device.connectNetwork(); });
+    QObject::connect(&device, &DeviceBridge::networkResult, &notes, &NotesBridge::networkAnswered);
     device.setRotationPreference(notes.rotationPreference());
     QObject::connect(&notes, &NotesBridge::rotationPreferenceChanged, &device,
                      [&]() { device.setRotationPreference(notes.rotationPreference()); });

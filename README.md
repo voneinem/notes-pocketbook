@@ -28,6 +28,9 @@ when you are on Wi-Fi.
 >   underline and collapsible details on the reading page; a "/" menu, a "//" date-time picker and an emoji grid in the
 >   editor. Implemented and covered by host tests (including the real QML pages driven offscreen); the device checks
 >   are open, see [quickstart](specs/006-markdown-slash-menu/quickstart.md).
+> - **Auto Sync (feature 008):** a Settings switch (on by default) that starts a sync a few seconds
+>   after a save, switching Wi-Fi on if needed. Implemented and covered by host tests (including a local HTTPS server); the
+>   device walkthrough is open, see [quickstart](specs/008-autosync-on-save/quickstart.md).
 > - **Tested on the host:** the Qt-free core, the bridge and the QML pages are covered by automated
 >   tests. Run `scripts/pre-merge.sh` to build, run them and check for secrets.
 > - **Not verified:** the Notes API details that need a live server (the fixtures in
@@ -149,6 +152,23 @@ Details: [spec.md](specs/006-markdown-slash-menu/spec.md), [quickstart](specs/00
   `YYYY-MM-DD HH:MM`), and *Emoji* opens a grid of 48 common emojis. Each insertion is one Undo step. Notes stay plain
   Markdown: other apps show the same text, in their own way.
 
+### Auto Sync
+
+Details: [spec.md](specs/008-autosync-on-save/spec.md), [quickstart](specs/008-autosync-on-save/quickstart.md).
+
+- **Settings → Synchronization → "Auto Sync"** is **on** by default and switches on and off at once. When it is
+  on, saving or deleting a note, changing its category or favorite mark, or ticking a task box starts the ordinary sync
+  by itself, about 4 seconds after the last change and at most once every 15 seconds, so changes made close together
+  share one sync. The save and the editor never wait for the network. The *Sync now* button reads "Syncing..." from
+  the save until the sync ends.
+- **Wi-Fi and the rest.** With Wi-Fi off, the reader asks the device to connect once for the save (as *Sync now* does)
+  and syncs when it is up; saves made meanwhile share that request. With no account, or if the connection fails,
+  nothing is attempted and no error is shown: the note stays marked as waiting and goes out with the next sync (a later
+  save, *Sync now*, or the sync at app start). It never retries on a timer and never starts while an editor is open. A failed sync shows its reason in the
+  status line, as for *Sync now*.
+- **Safety.** It is the same sync, with the same conflict handling. If a sync replaced a note while you were editing it,
+  saving keeps the server's version and your text as a separate note marked "(conflict ...)", and says so once.
+
 ## Security notes
 
 - **Certificates are always verified.** Only `https://` servers are accepted. There is no option to
@@ -219,7 +239,9 @@ were used on an InkPad One.
   [specification](specs/002-rich-note-content/spec.md), [plan](specs/002-rich-note-content/plan.md),
   [tasks](specs/002-rich-note-content/tasks.md); About box:
   [specification](specs/003-about-box/spec.md), [plan](specs/003-about-box/plan.md),
-  [tasks](specs/003-about-box/tasks.md)
+  [tasks](specs/003-about-box/tasks.md); Auto Sync:
+  [specification](specs/008-autosync-on-save/spec.md), [plan](specs/008-autosync-on-save/plan.md),
+  [tasks](specs/008-autosync-on-save/tasks.md)
 - Background analyses in [`docs/`](docs/): [InkFeed](https://github.com/jrohde/InkFeed), the PocketBook SDK, and the behavior of the
   Android Notes app (reference only)
 

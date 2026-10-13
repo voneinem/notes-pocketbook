@@ -2,7 +2,11 @@
 // Covers the connection test messages, the CA handling (device/bundled + custom-ca.pem), saving and
 // forgetting the account, and that the password is never exposed back. Needs the `openssl` CLI.
 #include <atomic>
+#include <chrono>
 #include <ctime>
+#include <functional>
+#include <memory>
+#include <thread>
 
 #include <QCoreApplication>
 #include <QEventLoop>
@@ -232,6 +236,37 @@ PB_TEST(the_rotation_preference_is_validated_and_persisted) {
     }
     NotesBridge again(config_for(data));
     PB_CHECK_EQ(again.property("rotationPreference").toString().toStdString(), std::string("landscape"));
+}
+
+// Spec 008: "Auto Sync" is a persisted on/off choice, on by default, usable without an account.
+PB_TEST(the_auto_sync_choice_is_on_by_default_persisted_and_announced_once) {
+    pbtest::TmpDir data;
+    {
+        NotesBridge bridge(config_for(data));
+        int announced = 0;
+        QObject::connect(&bridge, &NotesBridge::syncAfterSaveChanged, [&] { ++announced; });
+        PB_CHECK(bridge.property("syncAfterSave").toBool());   // on on a fresh install, no account
+        PB_CHECK(bridge.setProperty("syncAfterSave", false));
+        PB_CHECK(!bridge.property("syncAfterSave").toBool());
+        PB_CHECK_EQ(announced, 1);
+        bridge.setProperty("syncAfterSave", false);   // same value again: nothing is announced
+        PB_CHECK_EQ(announced, 1);
+        bridge.setProperty("syncAfterSave", true);
+        PB_CHECK(bridge.property("syncAfterSave").toBool());
+        PB_CHECK_EQ(announced, 2);
+        bridge.setProperty("syncAfterSave", false);
+    }
+    NotesBridge again(config_for(data));
+    PB_CHECK(!again.property("syncAfterSave").toBool());
+}
+
+PB_TEST(forgetting_the_account_keeps_the_auto_sync_choice) {
+    pbtest::TmpDir data;
+    NotesBridge bridge(config_for(data));
+    PB_CHECK(bridge.saveAccount("https://localhost:1", "alice", "pw"));
+    bridge.setProperty("syncAfterSave", false);
+    PB_CHECK(bridge.forgetAccount());
+    PB_CHECK(!bridge.property("syncAfterSave").toBool());
 }
 
 // ---- User Story 2: note list, reader, font size, sync ----------------------------------------------
@@ -1013,6 +1048,604 @@ PB_TEST(copying_changes_nothing) {
     PB_CHECK(before == after);                                   // title, blocks, modified, pending, category, favorite
     PB_CHECK(list == bridge.listNotes());
     PB_CHECK_EQ(bridge.property("pendingCount").toInt(), pending);
+}
+
+// ---- Spec 008: an automatic sync after a save ---------------------------------------------------------------------
+// A small stateful Notes server over TLS that counts what the app sends, plus a rig that wires a bridge to it with
+// short timings. Nothing here calls syncNow() unless the test says so: the sync must come from the save.
+
+#include <map>
+#include <mutex>
+
+namespace {
+
+struct AutoServer {
+    struct Stored {
+        std::string etag, content, title;   // title: what the app sent; empty = the first line of the content
+    };
+    std::mutex mu;
+    std::map<int64_t, Stored> notes;
+    int64_t next_id = 100;
+    int version = 0;
+    std::atomic<int> puts{0}, posts{0}, deletes{0}, lists{0};
+    std::atomic<int> hold_put_ms{0};       // delay the answer to a PUT (a sync that takes a while)
+    std::atomic<int> list_status{200};     // != 200: the list answer fails (a server that is down)
+    std::atomic<bool> conflict_on_put{false};   // answer a PUT with 412: the note changed on the server
+    std::vector<std::string> bodies;       // request bodies of the writes, in order
+
+    static std::string note_json(int64_t id, const Stored& n) {
+        const std::string title = !n.title.empty() ? n.title : n.content.substr(0, n.content.find("\\n"));
+        return "{\"id\":" + std::to_string(id) + ",\"etag\":\"" + n.etag + "\",\"readonly\":false,\"title\":\"" + title + "\",\"content\":\"" +
+               n.content + "\",\"category\":\"\",\"favorite\":false,\"modified\":1700000900}";
+    }
+    static std::string body_of(const std::string& req) {
+        const size_t p = req.find("\r\n\r\n");
+        return p == std::string::npos ? std::string() : req.substr(p + 4);
+    }
+    // the raw (still JSON-escaped) value of "content" in a request body
+    static std::string content_of(const std::string& body, const std::string& key = "content") {
+        const std::string needle = "\"" + key + "\":\"";
+        const size_t k = body.find(needle);
+        if (k == std::string::npos) return std::string();
+        std::string out;
+        for (size_t i = k + needle.size(); i < body.size(); ++i) {
+            if (body[i] == '\\' && i + 1 < body.size()) { out += body[i]; out += body[++i]; continue; }
+            if (body[i] == '"') break;
+            out += body[i];
+        }
+        return out;
+    }
+    std::string handle(const std::string& req) {
+        using R = pbtest::TlsTestServer;
+        const std::string line = req.substr(0, req.find('\r'));
+        if (req.find("/capabilities") != std::string::npos) return R::http_response(200, kCapabilities);
+        std::lock_guard<std::mutex> l(mu);
+        const size_t at = line.find("/api/v1/notes/");   // one note; the list is ".../api/v1/notes" without a slash
+        const int64_t id = at == std::string::npos ? 0 : std::atoll(line.c_str() + at + 14);
+        if (line.rfind("PUT ", 0) == 0) {
+            ++puts;
+            const std::string body = body_of(req);
+            bodies.push_back(body);
+            if (conflict_on_put) return R::http_response(412, "{}");
+            if (hold_put_ms > 0) std::this_thread::sleep_for(std::chrono::milliseconds(hold_put_ms.load()));
+            Stored& n = notes[id];
+            n.content = content_of(body);
+            n.title = content_of(body, "title");
+            n.etag = "e" + std::to_string(id) + "-" + std::to_string(++version);
+            return R::http_response(200, note_json(id, n));
+        }
+        if (line.rfind("POST ", 0) == 0) {
+            ++posts;
+            const std::string body = body_of(req);
+            bodies.push_back(body);
+            const int64_t nid = next_id++;
+            Stored& n = notes[nid];
+            n.content = content_of(body);
+            n.title = content_of(body, "title");
+            n.etag = "e" + std::to_string(nid) + "-" + std::to_string(++version);
+            return R::http_response(200, note_json(nid, n));
+        }
+        if (line.rfind("DELETE ", 0) == 0) {
+            ++deletes;
+            notes.erase(id);
+            return R::http_response(200, "{}");
+        }
+        if (at != std::string::npos) {   // GET one note
+            auto it = notes.find(id);
+            if (it == notes.end()) return R::http_response(404, "{}");
+            const size_t inm = req.find("If-None-Match:");
+            if (inm != std::string::npos && req.substr(inm, req.find('\r', inm) - inm).find(it->second.etag) != std::string::npos)
+                return R::http_response(304, "");   // unchanged since the etag the app holds
+            return R::http_response(200, note_json(id, it->second));
+        }
+        ++lists;
+        if (list_status != 200) return R::http_response(list_status, "{}");
+        std::string out = "[";
+        for (const auto& kv : notes) out += (out.size() > 1 ? "," : "") + note_json(kv.first, kv.second);
+        return R::http_response(200, out + "]");
+    }
+    int writes() const { return puts + posts + deletes; }
+};
+
+// A bridge with a reader-side note 7 ("Seven", synced, etag "etag7") and an account on the local server.
+struct AutoRig {
+    pbtest::TmpDir pkidir, data;
+    pbtest::TestPki pki{pkidir, "privateca"};
+    AutoServer state;
+    std::unique_ptr<pbtest::TlsTestServer> server;
+    std::unique_ptr<NotesBridge> bridge;
+    std::atomic<bool> online{true};
+    int finished = 0;
+    QStringList outcomes, messages;
+    int errors = 0;
+    qlonglong note7 = 0;
+
+    explicit AutoRig(const std::string& content7 = "Seven\nbody", int quiet_ms = 50, int gap_ms = 0) {
+        if (!pki.available()) return;
+        auto leaf = pki.issue("server", "DNS:localhost,IP:127.0.0.1");
+        std::string escaped;   // the server keeps note text JSON-escaped, as it is echoed back
+        for (char c : content7) { if (c == '\n') escaped += "\\n"; else escaped += c; }
+        state.notes[7] = {"etag7", escaped};
+        server = std::make_unique<pbtest::TlsTestServer>(leaf.cert, leaf.key, [this](const std::string& req) { return state.handle(req); });
+        data.write("custom-ca.pem", slurp_file(pki.ca_cert()));
+        seed(data, {remote_note(7, content7, "", 1700000000)});
+        NotesBridge::Config c = config_for(data);
+        c.autoSyncQuietMs = quiet_ms;
+        c.autoSyncGapMs = gap_ms;
+        c.wifiConnected = [this] { return online.load(); };
+        bridge = std::make_unique<NotesBridge>(c);
+        PB_CHECK(bridge->saveAccount(QString::fromStdString(server->url("/")), "alice", "pw"));
+        QObject::connect(bridge.get(), &NotesBridge::syncFinished, [this](const QString& o, const QString& m) { ++finished; outcomes << o; messages << m; });
+        QObject::connect(bridge.get(), &NotesBridge::errorOccurred, [this](const QString&, const QString&) { ++errors; });
+        note7 = bridge->listNotes().at(0).toMap().value("localId").toLongLong();
+    }
+    bool ok() const { return bridge != nullptr; }
+    void switch_on() { bridge->setProperty("syncAfterSave", true); }
+    size_t requests() const { return server->requests().size(); }
+};
+
+bool pump_until(const std::function<bool()>& done, int timeout_ms) {
+    QEventLoop loop;
+    QTimer poll;
+    QObject::connect(&poll, &QTimer::timeout, [&] { if (done()) loop.quit(); });
+    poll.start(10);
+    QTimer::singleShot(timeout_ms, &loop, &QEventLoop::quit);
+    if (!done()) loop.exec();
+    return done();
+}
+void settle(int ms) {
+    QEventLoop loop;
+    QTimer::singleShot(ms, &loop, &QEventLoop::quit);
+    loop.exec();
+}
+
+}  // namespace
+
+PB_TEST(a_saved_edit_is_sent_by_an_automatic_sync) {
+    AutoRig rig;
+    if (!rig.ok()) PB_SKIP("openssl CLI not available");
+    rig.switch_on();
+    PB_CHECK_EQ(rig.requests(), static_cast<size_t>(0));
+    PB_CHECK_EQ(rig.bridge->saveNote(rig.note7, "Seven", "Seven\nedited", "", false), rig.note7);
+    PB_CHECK_EQ(rig.requests(), static_cast<size_t>(0));      // the save did not wait for the network (FR-012)
+    PB_CHECK(pump_until([&] { return rig.finished >= 1; }, 5000));
+    PB_CHECK_EQ(rig.state.puts.load(), 1);
+    PB_CHECK(rig.state.bodies.at(0).find("edited") != std::string::npos);
+    PB_CHECK_EQ(rig.outcomes.at(0).toStdString(), std::string("success"));
+    PB_CHECK(!rig.bridge->property("syncRunning").toBool());
+    PB_CHECK_EQ(rig.bridge->property("pendingCount").toInt(), 0);
+    PB_CHECK(rig.bridge->property("syncStatus").toString().contains("Last sync"));
+}
+
+// The Sync now button reads "Syncing..." from the moment an automatic sync is triggered (the save), through the quiet
+// period and a Wi-Fi connection, until it ends.
+PB_TEST(sync_is_active_from_the_save_until_the_automatic_sync_ends) {
+    AutoRig rig(  "Seven\nbody", 300);
+    if (!rig.ok()) PB_SKIP("openssl CLI not available");
+    int changes = 0;
+    QObject::connect(rig.bridge.get(), &NotesBridge::syncStateChanged, [&] { ++changes; });
+    PB_CHECK(!rig.bridge->property("syncActive").toBool());
+    rig.bridge->saveNote(rig.note7, "Seven", "Seven\nedited", "", false);
+    PB_CHECK(rig.bridge->property("syncActive").toBool());          // triggered: waiting out the quiet period
+    PB_CHECK(!rig.bridge->property("syncRunning").toBool());
+    PB_CHECK(changes >= 1);                                          // QML is told
+    PB_CHECK(pump_until([&] { return rig.finished >= 1; }, 5000));
+    PB_CHECK(!rig.bridge->property("syncActive").toBool());          // and back to idle afterwards
+}
+
+PB_TEST(sync_is_active_while_the_device_connects_and_idle_again_when_it_fails) {
+    AutoRig rig;
+    if (!rig.ok()) PB_SKIP("openssl CLI not available");
+    int requests = 0;
+    rig.bridge->setWifiRequest([&] { ++requests; });
+    rig.online = false;
+    rig.bridge->saveNote(rig.note7, "Seven", "Seven\nedited", "", false);
+    PB_CHECK(pump_until([&] { return requests >= 1; }, 3000));
+    PB_CHECK(rig.bridge->property("syncActive").toBool());          // connecting counts
+    rig.bridge->networkAnswered(false);
+    PB_CHECK(!rig.bridge->property("syncActive").toBool());         // dropped quietly: the button is usable again
+}
+
+PB_TEST(sync_is_not_active_when_a_save_starts_nothing) {
+    AutoRig rig;
+    if (!rig.ok()) PB_SKIP("openssl CLI not available");
+    rig.bridge->setProperty("syncAfterSave", false);
+    rig.bridge->saveNote(rig.note7, "Seven", "Seven\nedited", "", false);
+    PB_CHECK(!rig.bridge->property("syncActive").toBool());
+    rig.bridge->setProperty("syncAfterSave", true);
+    rig.online = false;                                              // no way to connect: dropped after the quiet period
+    rig.bridge->saveNote(rig.note7, "Seven", "Seven\nedited again", "", false);
+    PB_CHECK(pump_until([&] { return !rig.bridge->property("syncActive").toBool(); }, 3000));
+}
+
+PB_TEST(a_saved_new_note_is_created_on_the_server_by_an_automatic_sync) {
+    AutoRig rig;
+    if (!rig.ok()) PB_SKIP("openssl CLI not available");
+    rig.switch_on();
+    PB_CHECK(rig.bridge->saveNote(-1, "Fresh", "Fresh\nnote", "", false) > 0);
+    PB_CHECK(pump_until([&] { return rig.finished >= 1; }, 5000));
+    PB_CHECK_EQ(rig.state.posts.load(), 1);
+    PB_CHECK(rig.state.bodies.at(0).find("Fresh") != std::string::npos);
+}
+
+PB_TEST(a_confirmed_delete_is_sent_by_an_automatic_sync) {
+    AutoRig rig;
+    if (!rig.ok()) PB_SKIP("openssl CLI not available");
+    rig.switch_on();
+    PB_CHECK(rig.bridge->deleteNote(rig.note7));
+    PB_CHECK(pump_until([&] { return rig.finished >= 1; }, 5000));
+    PB_CHECK_EQ(rig.state.deletes.load(), 1);
+}
+
+PB_TEST(favorite_category_and_task_changes_each_start_an_automatic_sync) {
+    AutoRig rig("Tasks\n- [ ] one\n- [ ] two");
+    if (!rig.ok()) PB_SKIP("openssl CLI not available");
+    rig.switch_on();
+    PB_CHECK(rig.bridge->toggleFavorite(rig.note7));
+    PB_CHECK(pump_until([&] { return rig.finished >= 1; }, 5000));
+    PB_CHECK_EQ(rig.state.puts.load(), 1);
+    PB_CHECK(rig.bridge->setCategory(rig.note7, "Work"));
+    PB_CHECK(pump_until([&] { return rig.finished >= 2; }, 5000));
+    PB_CHECK_EQ(rig.state.puts.load(), 2);
+    PB_CHECK(rig.bridge->toggleTask(rig.note7, 1));
+    PB_CHECK(pump_until([&] { return rig.finished >= 3; }, 5000));
+    PB_CHECK_EQ(rig.state.puts.load(), 3);
+    PB_CHECK(rig.state.bodies.at(2).find("[x] one") != std::string::npos);
+}
+
+PB_TEST(with_the_switch_off_a_save_sends_nothing) {
+    AutoRig rig;
+    if (!rig.ok()) PB_SKIP("openssl CLI not available");
+    bool ever_running = false;
+    QObject::connect(rig.bridge.get(), &NotesBridge::syncStateChanged, [&] { if (rig.bridge->syncRunning()) ever_running = true; });
+    rig.bridge->setProperty("syncAfterSave", false);
+    rig.bridge->saveNote(rig.note7, "Seven", "Seven\nedited", "", false);
+    rig.bridge->saveNote(-1, "Fresh", "Fresh\nnote", "", false);
+    rig.bridge->toggleFavorite(rig.note7);
+    rig.bridge->deleteNote(rig.note7);
+    settle(500);
+    PB_CHECK_EQ(rig.requests(), static_cast<size_t>(0));       // zero network activity (SC-003)
+    PB_CHECK(!ever_running);
+    PB_CHECK_EQ(rig.finished, 0);
+}
+
+PB_TEST(saving_an_unchanged_note_starts_no_sync) {
+    AutoRig rig;
+    if (!rig.ok()) PB_SKIP("openssl CLI not available");
+    rig.switch_on();
+    rig.bridge->saveNote(rig.note7, "Seven", "Seven\nbody", "", false);   // the text it already has
+    settle(500);
+    PB_CHECK_EQ(rig.requests(), static_cast<size_t>(0));
+    PB_CHECK_EQ(rig.finished, 0);
+}
+
+PB_TEST(a_manual_sync_right_after_a_save_leaves_no_second_sync_behind) {
+    AutoRig rig("Seven\nbody", 300, 0);
+    if (!rig.ok()) PB_SKIP("openssl CLI not available");
+    rig.switch_on();
+    rig.bridge->saveNote(rig.note7, "Seven", "Seven\nedited", "", false);
+    rig.bridge->syncNow();                                    // inside the quiet period: it carries the change
+    PB_CHECK(pump_until([&] { return rig.finished >= 1; }, 5000));
+    settle(900);                                               // longer than the quiet period
+    PB_CHECK_EQ(rig.finished, 1);
+    PB_CHECK_EQ(rig.state.puts.load(), 1);
+}
+
+PB_TEST(an_automatic_sync_keeps_both_versions_when_the_server_changed_the_note) {
+    AutoRig rig;
+    if (!rig.ok()) PB_SKIP("openssl CLI not available");
+    {
+        std::lock_guard<std::mutex> l(rig.state.mu);
+        rig.state.notes[7] = {"e7new", "Seven\\nserver text"};
+        rig.state.conflict_on_put = true;
+    }
+    int conflicts = -1, restored = -1;
+    QObject::connect(rig.bridge.get(), &NotesBridge::conflictsDetected, [&](int c, int r) { conflicts = c; restored = r; });
+    rig.switch_on();
+    rig.bridge->saveNote(rig.note7, "Seven", "Seven\nmy text", "", false);
+    PB_CHECK(pump_until([&] { return rig.finished >= 1; }, 5000));
+    PB_CHECK_EQ(conflicts, 1);                    // handled as a manual sync handles it (FR-017)
+    PB_CHECK_EQ(restored, 0);
+    PB_CHECK_EQ(rig.state.posts.load(), 1);        // the reader's text went up as a copy ...
+    PB_CHECK(rig.state.bodies.back().find("my text") != std::string::npos);
+    bool has_server = false, has_copy = false;     // ... and both versions are in the list
+    for (const QVariant& v : rig.bridge->listNotes()) {
+        const std::string title = v.toMap().value("title").toString().toStdString();
+        if (title == "Seven") has_server = true;
+        if (title.find("(conflict ") != std::string::npos) has_copy = true;
+    }
+    PB_CHECK(has_server);
+    PB_CHECK(has_copy);
+}
+
+PB_TEST(markdown_of_feature_006_reaches_the_server_unchanged_by_an_automatic_sync) {
+    AutoRig rig;
+    if (!rig.ok()) PB_SKIP("openssl CLI not available");
+    rig.switch_on();
+    const QString text = "Formats\n```yaml\nkey:\n  nested: 1\n```\n> [!NOTE]\n> careful\n<details>\n<summary>more</summary>\nhidden\n</details>";
+    PB_CHECK(rig.bridge->saveNote(-1, "Formats", text, "", false) > 0);
+    PB_CHECK(pump_until([&] { return rig.finished >= 1; }, 5000));
+    PB_CHECK_EQ(rig.state.posts.load(), 1);
+    const std::string sent = AutoServer::content_of(rig.state.bodies.at(0));
+    std::string expected;
+    for (char c : text.toStdString()) { if (c == '\n') expected += "\\n"; else expected += c; }
+    PB_CHECK_EQ(sent, expected);                   // byte for byte (FR-009)
+}
+
+// ---- Spec 008: a sync that ran while the editor was open must not be overwritten by the editor's older text ---------
+
+namespace {
+struct ConflictCatcher {
+    int conflicts = -1, restored = -1, emitted = 0;
+    explicit ConflictCatcher(NotesBridge& b) {
+        QObject::connect(&b, &NotesBridge::conflictsDetected, [this](int c, int r) { conflicts = c; restored = r; ++emitted; });
+    }
+};
+// What a pull does to an unchanged note: a newer server version with a new validator.
+void pull_new_version(NotesBridge& b, int64_t remote_id, const std::string& content) {
+    pbnotes::ApiNote n = remote_note(remote_id, content, "", 1700000500);
+    n.etag = "etag" + std::to_string(remote_id) + "-newer";
+    b.store()->apply_remote({n});
+}
+int count_conflict_copies(const NotesBridge& b) {
+    int n = 0;
+    for (const QVariant& v : b.listNotes())
+        if (v.toMap().value("title").toString().contains("(conflict ")) ++n;
+    return n;
+}
+}  // namespace
+
+PB_TEST(saving_stale_editor_text_after_a_pull_keeps_both_versions) {
+    pbtest::TmpDir data;
+    seed(data, {remote_note(7, "Plan\nold text", "", 1700000000)});
+    NotesBridge bridge(config_for(data));
+    ConflictCatcher dialog(bridge);
+    const qlonglong id = bridge.listNotes().at(0).toMap().value("localId").toLongLong();
+    const QVariantMap loaded = bridge.loadForEdit(id);
+    PB_CHECK_EQ(loaded.value("text").toString().toStdString(), std::string("Plan\nold text"));
+    pull_new_version(bridge, 7, "Plan\nserver text");                                      // a sync, meanwhile
+    const qlonglong saved = bridge.saveNote(id, "Plan", "Plan\nmy older text", "", false);
+    PB_CHECK(saved > 0);
+    PB_CHECK(saved != id);                                                                  // the text went to a new note
+    PB_CHECK_EQ(bridge.loadForEdit(saved).value("text").toString().toStdString(), std::string("Plan\nmy older text"));
+    PB_CHECK(bridge.loadForEdit(saved).value("title").toString().contains("(conflict "));
+    PB_CHECK_EQ(bridge.loadForEdit(id).value("text").toString().toStdString(), std::string("Plan\nserver text"));   // untouched
+    PB_CHECK_EQ(dialog.conflicts, 1);
+    PB_CHECK_EQ(dialog.restored, 0);
+    PB_CHECK_EQ(dialog.emitted, 1);
+    PB_CHECK_EQ(count_conflict_copies(bridge), 1);
+    PB_CHECK_EQ(bridge.property("pendingCount").toInt(), 1);                                // the copy waits for the next sync
+}
+
+PB_TEST(saving_editor_text_nobody_changed_underneath_is_an_ordinary_save) {
+    pbtest::TmpDir data;
+    seed(data, {remote_note(7, "Plan\nold text", "", 1700000000)});
+    NotesBridge bridge(config_for(data));
+    ConflictCatcher dialog(bridge);
+    const qlonglong id = bridge.listNotes().at(0).toMap().value("localId").toLongLong();
+    bridge.loadForEdit(id);
+    PB_CHECK_EQ(bridge.saveNote(id, "Plan", "Plan\nnew text", "", false), id);
+    PB_CHECK_EQ(dialog.emitted, 0);
+    PB_CHECK_EQ(count_conflict_copies(bridge), 0);
+    PB_CHECK_EQ(bridge.listNotes().size(), 1);
+    // the same text with only a new validator (the reader's own push, confirmed meanwhile) is no conflict either
+    bridge.loadForEdit(id);
+    pull_new_version(bridge, 7, "Plan\nnew text");
+    PB_CHECK_EQ(bridge.saveNote(id, "Plan", "Plan\nnewer text", "", false), id);
+    PB_CHECK_EQ(dialog.emitted, 0);
+}
+
+PB_TEST(a_note_that_only_exists_here_and_a_new_note_are_saved_as_before) {
+    pbtest::TmpDir data;
+    NotesBridge bridge(config_for(data));
+    ConflictCatcher dialog(bridge);
+    const qlonglong fresh = bridge.saveNote(-1, "Mine", "Mine\none", "", false);
+    bridge.loadForEdit(fresh);
+    PB_CHECK_EQ(bridge.saveNote(fresh, "Mine", "Mine\ntwo", "", false), fresh);
+    PB_CHECK_EQ(dialog.emitted, 0);
+    PB_CHECK(bridge.saveNote(-1, "Other", "Other\ntext", "", false) > 0);
+    PB_CHECK_EQ(dialog.emitted, 0);
+}
+
+PB_TEST(opening_another_note_does_not_disturb_the_remembered_version_of_the_first) {
+    pbtest::TmpDir data;
+    seed(data, {remote_note(7, "Plan\nold text", "", 1700000000), remote_note(8, "Other\nbody", "", 1700000100)});
+    NotesBridge bridge(config_for(data));
+    ConflictCatcher dialog(bridge);
+    qlonglong plan = 0, other = 0;
+    for (const QVariant& v : bridge.listNotes()) {
+        const QVariantMap m = v.toMap();
+        (m.value("title").toString() == "Plan" ? plan : other) = m.value("localId").toLongLong();
+    }
+    bridge.loadForEdit(plan);
+    bridge.loadForEdit(other);
+    pull_new_version(bridge, 7, "Plan\nserver text");
+    PB_CHECK(bridge.saveNote(plan, "Plan", "Plan\nmine", "", false) != plan);               // still guarded
+    PB_CHECK_EQ(dialog.emitted, 1);
+}
+
+PB_TEST(a_refused_save_and_a_save_without_loading_keep_working_and_a_saved_note_forgets_its_version) {
+    pbtest::TmpDir data;
+    seed(data, {remote_note(7, "Plan\nold text", "", 1700000000)});
+    NotesBridge bridge(config_for(data));
+    ConflictCatcher dialog(bridge);
+    ErrorCatcher errors(bridge);
+    const qlonglong id = bridge.listNotes().at(0).toMap().value("localId").toLongLong();
+    // never loaded: no version to compare with, an ordinary save (the reader's checkbox and other callers)
+    pull_new_version(bridge, 7, "Plan\nserver text");
+    PB_CHECK_EQ(bridge.saveNote(id, "Plan", "Plan\nwithout loading", "", false), id);
+    PB_CHECK_EQ(dialog.emitted, 0);
+    // an invalid save reports its error and keeps the remembered version for the retry
+    bridge.loadForEdit(id);
+    PB_CHECK_EQ(bridge.saveNote(id, "Plan", "   ", "", false), qlonglong(-1));
+    PB_CHECK(!errors.keys.isEmpty());
+    PB_CHECK_EQ(bridge.saveNote(id, "Plan", "Plan\nretry", "", false), id);
+    // after a successful save the version is forgotten: the editor has closed
+    pull_new_version(bridge, 7, "Plan\nserver text again");
+    PB_CHECK_EQ(bridge.saveNote(id, "Plan", "Plan\nno longer guarded", "", false), id);
+    PB_CHECK_EQ(dialog.emitted, 0);
+}
+
+// ---- Spec 008, offline and busy situations ----------------------------------------------------------------------
+
+PB_TEST(without_wifi_a_save_is_kept_quietly_and_goes_out_with_the_next_sync) {
+    AutoRig rig;
+    if (!rig.ok()) PB_SKIP("openssl CLI not available");
+    rig.switch_on();
+    rig.online = false;
+    PB_CHECK(rig.bridge->saveNote(rig.note7, "Seven", "Seven\nedited offline", "", false) > 0);
+    settle(500);
+    PB_CHECK_EQ(rig.requests(), static_cast<size_t>(0));       // no attempt
+    PB_CHECK_EQ(rig.errors, 0);                                // no error
+    PB_CHECK_EQ(rig.finished, 0);                              // no failed sync either
+    PB_CHECK_EQ(rig.bridge->property("pendingCount").toInt(), 1);   // still waiting
+    settle(500);                                               // and no retry when time passes
+    PB_CHECK_EQ(rig.requests(), static_cast<size_t>(0));
+
+    rig.online = true;
+    PB_CHECK(rig.bridge->saveNote(-1, "Later", "Later\nnote", "", false) > 0);
+    PB_CHECK(pump_until([&] { return rig.finished >= 1; }, 5000));
+    PB_CHECK_EQ(rig.state.puts.load(), 1);                     // the earlier waiting note went with it
+    PB_CHECK_EQ(rig.state.posts.load(), 1);
+    PB_CHECK_EQ(rig.bridge->property("pendingCount").toInt(), 0);
+}
+
+// The reader's Wi-Fi is normally off (first device test, 2026-10-12: the sync was dropped as offline). Auto Sync asks
+// the device to connect, as "Sync now" does, and syncs once the connection is up.
+PB_TEST(without_wifi_auto_sync_asks_the_device_to_connect_and_then_syncs) {
+    AutoRig rig;
+    if (!rig.ok()) PB_SKIP("openssl CLI not available");
+    int requests = 0;
+    rig.bridge->setWifiRequest([&] { ++requests; });
+    rig.online = false;
+    PB_CHECK(rig.bridge->saveNote(rig.note7, "Seven", "Seven\nedited offline", "", false) > 0);
+    PB_CHECK(pump_until([&] { return requests >= 1; }, 3000));
+    PB_CHECK_EQ(rig.requests(), static_cast<size_t>(0));        // nothing is sent before the connection is up
+    PB_CHECK_EQ(rig.errors, 0);
+    rig.online = true;
+    rig.bridge->networkAnswered(true);
+    PB_CHECK(pump_until([&] { return rig.finished >= 1; }, 5000));
+    PB_CHECK_EQ(rig.state.puts.load(), 1);
+    PB_CHECK_EQ(rig.bridge->property("pendingCount").toInt(), 0);
+    PB_CHECK_EQ(requests, 1);
+}
+
+PB_TEST(a_connection_that_fails_ends_quietly_and_saves_made_while_connecting_share_it) {
+    AutoRig rig;
+    if (!rig.ok()) PB_SKIP("openssl CLI not available");
+    int requests = 0;
+    rig.bridge->setWifiRequest([&] { ++requests; });
+    rig.online = false;
+    rig.bridge->saveNote(rig.note7, "Seven", "Seven\nedited", "", false);
+    PB_CHECK(pump_until([&] { return requests >= 1; }, 3000));
+    rig.bridge->saveNote(-1, "Fresh", "Fresh\nnote", "", false);     // while the device is connecting
+    settle(300);
+    PB_CHECK_EQ(requests, 1);                                          // one connection request, not two
+    rig.bridge->networkAnswered(false);                                // Wi-Fi did not come up
+    settle(500);
+    PB_CHECK_EQ(rig.requests(), static_cast<size_t>(0));               // no sync, no retry
+    PB_CHECK_EQ(rig.errors, 0);
+    PB_CHECK_EQ(rig.finished, 0);
+    PB_CHECK_EQ(rig.bridge->property("pendingCount").toInt(), 2);      // both still waiting for the next sync
+    rig.bridge->networkAnswered(true);                                 // a stray answer starts nothing
+    settle(300);
+    PB_CHECK_EQ(rig.requests(), static_cast<size_t>(0));
+}
+
+PB_TEST(a_failed_automatic_sync_is_reported_in_the_status_and_not_retried) {
+    AutoRig rig;
+    if (!rig.ok()) PB_SKIP("openssl CLI not available");
+    rig.state.list_status = 503;
+    int dialogs = 0;
+    QObject::connect(rig.bridge.get(), &NotesBridge::conflictsDetected, [&](int, int) { ++dialogs; });
+    rig.switch_on();
+    rig.bridge->saveNote(rig.note7, "Seven", "Seven\nedited", "", false);
+    PB_CHECK(pump_until([&] { return rig.finished >= 1; }, 5000));
+    PB_CHECK(rig.outcomes.at(0) != QString("success"));
+    PB_CHECK(!rig.bridge->property("syncStatus").toString().isEmpty());
+    settle(1000);                                              // quiet period and gap are long over
+    PB_CHECK_EQ(rig.finished, 1);                              // no retry loop (FR-016)
+    PB_CHECK_EQ(rig.state.lists.load(), 1);
+    PB_CHECK_EQ(dialogs, 0);
+    PB_CHECK_EQ(rig.errors, 0);
+}
+
+PB_TEST(a_save_while_a_sync_runs_is_sent_by_exactly_one_more_sync) {
+    AutoRig rig;
+    if (!rig.ok()) PB_SKIP("openssl CLI not available");
+    rig.state.hold_put_ms = 400;
+    rig.switch_on();
+    rig.bridge->saveNote(rig.note7, "Seven", "Seven\nfirst", "", false);
+    // wait until the first PUT is on the server: the sync has read its list, a later save is not part of it
+    PB_CHECK(pump_until([&] { return rig.state.puts.load() >= 1 && rig.bridge->syncRunning(); }, 3000));
+    rig.bridge->saveNote(rig.note7, "Seven", "Seven\nsecond", "", false);   // while that sync is running
+    PB_CHECK(pump_until([&] { return rig.finished >= 2; }, 8000));
+    settle(700);
+    PB_CHECK_EQ(rig.finished, 2);                              // never overlapping, exactly one follow-up
+    PB_CHECK_EQ(rig.state.puts.load(), 2);
+    PB_CHECK(rig.state.bodies.back().find("second") != std::string::npos);
+    PB_CHECK_EQ(rig.bridge->property("pendingCount").toInt(), 0);
+}
+
+PB_TEST(saves_close_together_share_one_sync) {
+    AutoRig rig("Seven\nbody", 250, 0);
+    if (!rig.ok()) PB_SKIP("openssl CLI not available");
+    rig.switch_on();
+    for (int i = 0; i < 5; ++i) {
+        PB_CHECK(rig.bridge->saveNote(-1, "N", QString("N%1\ntext").arg(i), "", false) > 0);
+        settle(20);
+    }
+    PB_CHECK(pump_until([&] { return rig.finished >= 1; }, 5000));
+    settle(700);
+    PB_CHECK_EQ(rig.finished, 1);
+    PB_CHECK_EQ(rig.state.posts.load(), 5);                    // all five went in that one sync
+}
+
+PB_TEST(switching_off_during_a_sync_lets_it_finish_and_starts_no_more) {
+    AutoRig rig;
+    if (!rig.ok()) PB_SKIP("openssl CLI not available");
+    rig.state.hold_put_ms = 400;
+    rig.switch_on();
+    rig.bridge->saveNote(rig.note7, "Seven", "Seven\nfirst", "", false);
+    PB_CHECK(pump_until([&] { return rig.state.puts.load() >= 1 && rig.bridge->syncRunning(); }, 3000));
+    rig.bridge->saveNote(rig.note7, "Seven", "Seven\nsecond", "", false);   // would need a follow-up ...
+    rig.bridge->setProperty("syncAfterSave", false);                        // ... but the reader switches it off
+    PB_CHECK(pump_until([&] { return rig.finished >= 1; }, 5000));
+    settle(900);
+    PB_CHECK_EQ(rig.finished, 1);                              // the running sync finished normally, nothing followed
+    PB_CHECK_EQ(rig.outcomes.at(0).toStdString(), std::string("success"));
+}
+
+PB_TEST(without_an_account_a_save_starts_no_sync_and_reports_no_error) {
+    pbtest::TmpDir data;
+    NotesBridge::Config c = config_for(data);
+    c.autoSyncQuietMs = 50;
+    c.autoSyncGapMs = 0;
+    c.wifiConnected = [] { return true; };
+    NotesBridge bridge(c);
+    int errors = 0, finished = 0;
+    QObject::connect(&bridge, &NotesBridge::errorOccurred, [&](const QString&, const QString&) { ++errors; });
+    QObject::connect(&bridge, &NotesBridge::syncFinished, [&](const QString&, const QString&) { ++finished; });
+    bridge.setProperty("syncAfterSave", true);                 // allowed without an account
+    PB_CHECK(bridge.property("syncAfterSave").toBool());
+    PB_CHECK(bridge.saveNote(-1, "Local", "Local\nonly", "", false) > 0);
+    settle(500);
+    PB_CHECK_EQ(errors, 0);
+    PB_CHECK_EQ(finished, 0);
+    PB_CHECK(!bridge.property("syncRunning").toBool());
+}
+
+PB_TEST(no_automatic_sync_starts_while_an_editor_is_open) {
+    AutoRig rig;
+    if (!rig.ok()) PB_SKIP("openssl CLI not available");
+    rig.switch_on();
+    rig.bridge->setEditorOpen(true);
+    rig.bridge->saveNote(rig.note7, "Seven", "Seven\nedited", "", false);
+    settle(500);
+    PB_CHECK_EQ(rig.requests(), static_cast<size_t>(0));       // deferred (a pull could replace the note being edited)
+    rig.bridge->setEditorOpen(false);
+    PB_CHECK(pump_until([&] { return rig.finished >= 1; }, 5000));
+    PB_CHECK_EQ(rig.state.puts.load(), 1);
 }
 
 int main(int argc, char** argv) {

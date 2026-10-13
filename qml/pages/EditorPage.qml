@@ -41,7 +41,11 @@ Item {
                                   || category !== startCategory || favorite !== startFavorite
     readonly property real keyboardHeight: Qt.inputMethod.visible ? Qt.inputMethod.keyboardRectangle.height * Screen.devicePixelRatio : 0
 
+    // An open editor keeps the automatic "Auto Sync" from starting under it (spec 008).
+    Component.onDestruction: bridge.setEditorOpen(false)
+
     Component.onCompleted: {
+        bridge.setEditorOpen(true)
         if (noteId > 0) {
             var n = bridge.loadForEdit(noteId)
             if (n.text !== undefined) {

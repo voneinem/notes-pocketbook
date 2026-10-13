@@ -31,7 +31,7 @@ Item {
     property bool connectingWifi: false
     property string wifiMessage: ""
     function syncWithWifi() {
-        if (bridge.syncRunning || connectingWifi) return
+        if (bridge.syncActive || connectingWifi) return
         wifiMessage = ""
         if (device.wifiConnected()) { bridge.syncNow(); return }
         connectingWifi = true
@@ -84,8 +84,8 @@ Item {
             }
             InkButton {
                 id: syncButton
-                text: page.connectingWifi ? qsTr("Connecting...") : bridge.syncRunning ? qsTr("Syncing...") : qsTr("Sync now")
-                enabled: !bridge.syncRunning && !page.connectingWifi
+                text: page.connectingWifi ? qsTr("Connecting...") : bridge.syncActive ? qsTr("Syncing...") : qsTr("Sync now")
+                enabled: !bridge.syncActive && !page.connectingWifi
                 onClicked: page.syncWithWifi()
             }
             InkButton { id: settingsButton; text: qsTr("Settings"); onClicked: page.StackView.view.push(Qt.resolvedUrl("SettingsPage.qml")) }

@@ -39,6 +39,7 @@ set(PBNOTES_CORE_SOURCES
     src/sync_engine.cpp
     src/sync_attachments.cpp
     src/sync_status.cpp
+    src/sync_scheduler.cpp
 )
 
 # libcurl: the system package on the host, the SDK sysroot library for the device.

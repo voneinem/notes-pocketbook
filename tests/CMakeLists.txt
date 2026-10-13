@@ -62,6 +62,9 @@ if(TARGET pbnotes_bridge AND NOT TARGET_TYPE STREQUAL "ARM")
         add_test(NAME qml_reader_blocks COMMAND test_qml_pages ${CMAKE_CURRENT_SOURCE_DIR}/qml/reader_blocks.qml
                  ${CMAKE_SOURCE_DIR}/qml/pages/ReaderPage.qml)
         set_tests_properties(qml_reader_blocks PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen" LABELS "bridge")
+        add_test(NAME qml_settings_sync COMMAND test_qml_pages ${CMAKE_CURRENT_SOURCE_DIR}/qml/settings_sync.qml
+                 ${CMAKE_SOURCE_DIR}/qml/pages/SettingsPage.qml)
+        set_tests_properties(qml_settings_sync PROPERTIES ENVIRONMENT "QT_QPA_PLATFORM=offscreen" LABELS "bridge")
     endif()
 endif()
 

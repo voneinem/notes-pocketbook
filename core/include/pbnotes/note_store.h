@@ -25,12 +25,20 @@ struct NoteSummary {
     bool pending = false;  // has local changes the server has not confirmed yet
 };
 
-enum class EditError { None, EmptyContent, InvalidTitle, InvalidCategory, NotFound, StorageError };
+enum class EditError { None, EmptyContent, InvalidTitle, InvalidCategory, NotFound, StorageError, ChangedOnServer };
+
+// What the editor showed when it opened a note (spec 008): the text, category and favorite mark. The title is left
+// out on purpose: a confirmed upload may rewrite it (the server's unique title) without anyone changing the text.
+struct EditBase {
+    std::string content;
+    std::string category;
+    bool favorite = false;
+};
 
 struct EditResult {
     EditError error = EditError::None;
     int64_t local_id = 0;
-    std::string error_key;  // content_empty | title_* | category_* | not_found | storage_error (empty on success)
+    std::string error_key;  // content_empty | title_* | category_* | not_found | storage_error | changed_on_server (empty on success)
 };
 
 // Title rules (spec 004, data-model.md): trimmed of leading and trailing ASCII whitespace (trim_title), then
@@ -104,7 +112,9 @@ public:
     std::string pragma(const std::string& name) const;
 
     // Settings: font_size {small,medium,large}, sort_order {modified,title},
-    // view {all,favorites,uncategorized,category:<name>}, rotation {auto,portrait,landscape}.
+    // view {all,favorites,uncategorized,category:<name>}, rotation {auto,portrait,landscape},
+    // sync_after_save {off,on} (default on; the Settings control is called "Auto Sync": a saved change starts a sync by
+    // itself, spec 008).
     // get returns the default for unset keys and "" for unknown keys; set rejects unknown keys
     // and invalid values (returns false).
     std::string get_setting(const std::string& key) const;
@@ -167,6 +177,21 @@ public:
                             bool favorite, int64_t now);
     EditResult save_local(int64_t local_id, const std::string& title, const std::string& content,
                           const std::string& category, bool favorite, int64_t now);
+    // Like save_local, for the editor (spec 008). A sync that ran while the editor was open may have replaced the
+    // note with a newer server version; saving the editor's older text over it would then be pushed with the NEW
+    // validator and silently overwrite the server's text (Principle VI). So when the stored text, category or
+    // favorite mark differ from `base` (what the editor loaded) nothing is written and the result is
+    // EditError::ChangedOnServer ("changed_on_server"). Only the text, category and favorite are compared: a new
+    // ETag with the same text (the reader's own push, confirmed meanwhile) is an ordinary save.
+    EditResult save_local_if_unchanged(int64_t local_id, const EditBase& base, const std::string& title,
+                                       const std::string& content, const std::string& category, bool favorite,
+                                       int64_t now);
+    // Stores `content` (the editor's text for a note a sync changed meanwhile) as a NEW pending note titled
+    // `title` + the conflict suffix, numbered " #n" while that title exists (the rule resolve_conflict uses, shared
+    // code). Staged attachments the text names are bound to the copy; downloaded ones of `original_local_id` it
+    // names are duplicated for it. Validation as create_local. The original is not touched.
+    EditResult save_edit_as_conflict_copy(int64_t original_local_id, const std::string& title, const std::string& content,
+                                          const std::string& category, bool favorite, int64_t now);
     EditResult set_favorite(int64_t local_id, bool favorite, int64_t now);
     EditResult set_category(int64_t local_id, const std::string& category, int64_t now);
     EditResult mark_deleted(int64_t local_id);
@@ -286,6 +311,9 @@ private:
     bool bind_staged_locked(int64_t note_local_id, const std::string& content);
     // Conflict copy: moves the pending attachments of `original` to `copy` and duplicates the downloaded ones its
     // text names for the copy; returns false on a store failure (the caller rolls back).
+    // The first title "<base_title> (conflict DATE)", then " #2", " #3" ... that no note has (shared with
+    // resolve_conflict). False when the database cannot be asked.
+    bool unused_conflict_title_locked(const std::string& base_title, int64_t now, std::string* out);
     bool copy_attachments_for_conflict_locked(int64_t original, int64_t copy, const Note& local, int64_t now);
 
     sqlite3* db_ = nullptr;

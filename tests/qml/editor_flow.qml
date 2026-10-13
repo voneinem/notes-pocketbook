@@ -283,6 +283,14 @@ Window {
             eq(page.activeItem.text, "", "the text is back")
             check(!page.dirty, "undoing everything clears the unsaved-changes state")
         })
+        // ---- spec 008: the editor tells the bridge while it is open, and when it is gone ----
+        after(100, function() {
+            eq(JSON.stringify(bridge.editorOpenCalls), "[true]", "an open editor reports itself to the bridge")
+            ld.active = false
+        })
+        after(100, function() {
+            eq(JSON.stringify(bridge.editorOpenCalls), "[true,false]", "a closed editor reports that it is gone")
+        })
         win.queue = win.queue   // (the runner starts below)
         runner.interval = queue[0].ms
         runner.start()

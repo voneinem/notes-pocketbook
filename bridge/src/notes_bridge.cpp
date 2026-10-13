@@ -2,12 +2,14 @@
 #include "reader_blocks.h"
 
 #include <algorithm>
+#include <chrono>
 #include <cstdio>
 #include <ctime>
 #include <cstring>
 
 #include <QDir>
 #include <QMetaObject>
+#include <QTimer>
 
 #include "pbnotes/attachment_service.h"
 #include "pbnotes/ca_selector.h"
@@ -21,6 +23,11 @@
 #include "pbnotes/log.h"
 
 namespace {
+
+// Milliseconds on a clock that never goes back: the scheduler only compares differences.
+int64_t steady_ms() {
+    return std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now().time_since_epoch()).count();
+}
 
 QString text_for(const QString& key) {
     static const struct {
@@ -66,6 +73,15 @@ QString text_for(const QString& key) {
 }  // namespace
 
 NotesBridge::NotesBridge(const Config& config, QObject* parent) : QObject(parent), config_(config) {
+    {
+        pbnotes::SyncScheduler::Options options;
+        options.quiet_ms = config_.autoSyncQuietMs;
+        options.gap_ms = config_.autoSyncGapMs;
+        scheduler_ = pbnotes::SyncScheduler(options);
+    }
+    autoTimer_ = new QTimer(this);
+    autoTimer_->setSingleShot(true);
+    connect(autoTimer_, &QTimer::timeout, this, [this]() { evaluateAutoSync(); });
     QDir().mkpath(config_.dataDir);
     std::string error;
     store_ = pbnotes::NoteStore::open((config_.dataDir + QStringLiteral("/pbnotes.db")).toStdString(), &error);
@@ -124,6 +140,15 @@ QString NotesBridge::rotationPreference() const {
 void NotesBridge::setRotationPreference(const QString& preference) {
     if (!store_ || preference == rotationPreference()) return;
     if (store_->set_setting("rotation", preference.toStdString())) emit rotationPreferenceChanged();
+}
+
+bool NotesBridge::syncAfterSave() const { return store_ && store_->get_setting("sync_after_save") == "on"; }
+
+void NotesBridge::setSyncAfterSave(bool on) {
+    if (!store_ || on == syncAfterSave()) return;
+    if (!store_->set_setting("sync_after_save", on ? "on" : "off")) return;
+    emit syncAfterSaveChanged();
+    evaluateAutoSync();   // off drops a start that was waiting; on starts nothing by itself
 }
 
 QString NotesBridge::message(const QString& key) const { return text_for(key); }
@@ -479,8 +504,89 @@ QString NotesBridge::syncStatus() const {
 
 QString NotesBridge::formatTime(qlonglong epochSeconds) const { return format_time(epochSeconds); }
 
+// ---- sync after saving (spec 008) -----------------------------------------------------------------------------------
+// The six places that change a note call noteSaved(). The scheduler (core, host-tested) says whether to wait, drop or
+// start; starting is the ordinary syncNow(). Nothing here retries on a timer: the timer only serves a wait the
+// scheduler asked for after a save.
+
+void NotesBridge::noteSaved() {
+    if (!syncAfterSave()) return;   // off: a save changes nothing about when notes sync (FR-010)
+    scheduler_.note_saved(steady_ms());
+    networkTried_ = false;   // a new save may ask for Wi-Fi again
+    pbnotes::log::event("autosync.armed", {});
+    evaluateAutoSync();
+}
+
+void NotesBridge::publishActive() {
+    if (syncActive() == lastActive_) return;
+    lastActive_ = syncActive();
+    emit syncStateChanged();
+}
+
+void NotesBridge::evaluateAutoSync() {
+    evaluateAutoSyncStep();
+    publishActive();   // the Sync now button follows: armed or connecting reads as syncing
+}
+
+void NotesBridge::evaluateAutoSyncStep() {
+    if (!store_) return;
+    pbnotes::SyncScheduler::Inputs in;
+    in.enabled = syncAfterSave();
+    in.configured = store_->get_account().has_value();
+    in.running = syncRunning_;
+    in.editor_open = editorOpen_;
+    in.has_pending = !store_->pending_notes().empty();
+    in.online = !config_.wifiConnected || config_.wifiConnected();
+    in.can_connect = static_cast<bool>(wifiRequest_) && !networkTried_;
+    const bool was_armed = scheduler_.armed();
+    const pbnotes::SyncScheduler::Step step = scheduler_.next(steady_ms(), in);
+    switch (step.decision) {
+    case pbnotes::SyncScheduler::Decision::Start:
+        autoTimer_->stop();
+        pbnotes::log::event("autosync.start", {pbnotes::log::count("pending", static_cast<long>(store_->pending_notes().size()))});
+        syncNow();
+        break;
+    case pbnotes::SyncScheduler::Decision::Wait:
+        autoTimer_->start(static_cast<int>(std::max<int64_t>(1, step.wait_ms)));
+        break;
+    case pbnotes::SyncScheduler::Decision::Connect:
+        autoTimer_->stop();
+        if (!awaitingNetwork_) {   // saves made while the device connects share the one request
+            awaitingNetwork_ = true;
+            networkTried_ = true;
+            pbnotes::log::event("autosync.connect", {});
+            wifiRequest_();
+        }
+        break;
+    case pbnotes::SyncScheduler::Decision::Idle:
+        autoTimer_->stop();
+        if (was_armed && !scheduler_.armed())
+            pbnotes::log::event("autosync.drop", {pbnotes::log::text("reason", step.reason)});
+        else if (was_armed)
+            pbnotes::log::event("autosync.deferred", {pbnotes::log::text("reason", step.reason)});
+        break;
+    }
+}
+
+void NotesBridge::networkAnswered(bool connected) {
+    if (!awaitingNetwork_) return;   // somebody else's connection (Sync now, a download)
+    awaitingNetwork_ = false;
+    pbnotes::log::event("autosync.network", {pbnotes::log::text("result", connected ? "connected" : "failed")});
+    evaluateAutoSync();   // connected: the sync starts; failed: networkTried_ makes the start drop quietly
+}
+
+void NotesBridge::setEditorOpen(bool open) {
+    if (open == editorOpen_) return;
+    editorOpen_ = open;
+    if (!open) {
+        editBase_.clear();   // nothing is being edited any more
+        evaluateAutoSync();
+    }
+}
+
 void NotesBridge::syncNow() {
     if (!store_ || !store_->get_account() || syncRunning_.exchange(true)) return;
+    scheduler_.sync_started(steady_ms());
     if (syncWorker_.joinable()) syncWorker_.join();
     emit syncStateChanged();
     refreshCa();
@@ -500,6 +606,7 @@ void NotesBridge::syncNow() {
             emit syncFinished(QString::fromStdString(pbnotes::to_string(r.outcome)),
                               sync_message_text(r.message_key));
             if (r.counts.conflicts || r.counts.restored) emit conflictsDetected(r.counts.conflicts, r.counts.restored);
+            evaluateAutoSync();   // a save made while this sync ran is sent by one more (spec 008)
         }, Qt::QueuedConnection);
     });
 }
@@ -566,6 +673,7 @@ QVariantMap NotesBridge::loadForEdit(qlonglong localId) const {
     out.insert(QStringLiteral("text"), QString::fromStdString(note->content));
     out.insert(QStringLiteral("category"), QString::fromStdString(note->category));
     out.insert(QStringLiteral("favorite"), note->favorite);
+    editBase_[localId] = pbnotes::EditBase{note->content, note->category, note->favorite};
     return out;
 }
 
@@ -589,18 +697,43 @@ qlonglong NotesBridge::saveNote(qlonglong localId, const QString& title, const Q
                                 bool favorite) {
     if (!store_) return -1;
     const std::string ttl = title.toStdString(), content = text.toStdString(), cat = category.toStdString();
-    const pbnotes::EditResult r = localId > 0 ? store_->save_local(localId, ttl, content, cat, favorite, now_seconds())
-                                              : store_->create_local(ttl, content, cat, favorite, now_seconds());
+    pbnotes::EditResult r;
+    const auto base = localId > 0 ? editBase_.find(localId) : editBase_.end();
+    if (localId <= 0) {
+        r = store_->create_local(ttl, content, cat, favorite, now_seconds());
+    } else if (base == editBase_.end()) {
+        r = store_->save_local(localId, ttl, content, cat, favorite, now_seconds());
+    } else {
+        r = store_->save_local_if_unchanged(localId, base->second, ttl, content, cat, favorite, now_seconds());
+        if (r.error == pbnotes::EditError::ChangedOnServer) {
+            // A sync replaced the note while the editor was open: keep the server's version as the note and the
+            // editor's text as a new note, and tell the reader once (the conflict dialog says exactly this).
+            const pbnotes::EditResult copy = store_->save_edit_as_conflict_copy(localId, ttl, content, cat, favorite, now_seconds());
+            if (!finish_edit(this, copy)) return -1;
+            editBase_.erase(localId);
+            pbnotes::log::event("note.conflict_on_save", {pbnotes::log::count("copies", 1)});
+            emit noteChanged(localId);
+            emit noteChanged(copy.local_id);
+            emit notesChanged();
+            emit conflictsDetected(1, 0);
+            noteSaved();
+            return copy.local_id;
+        }
+    }
     if (!finish_edit(this, r)) return -1;
+    if (localId > 0) editBase_.erase(localId);
     emit noteChanged(r.local_id);
     emit notesChanged();
+    noteSaved();
     return r.local_id;
 }
 
 bool NotesBridge::deleteNote(qlonglong localId) {
     if (!store_ || !finish_edit(this, store_->mark_deleted(localId))) return false;
+    editBase_.erase(localId);
     emit noteChanged(localId);
     emit notesChanged();
+    noteSaved();
     return true;
 }
 
@@ -608,6 +741,7 @@ bool NotesBridge::setCategory(qlonglong localId, const QString& category) {
     if (!store_ || !finish_edit(this, store_->set_category(localId, category.toStdString(), now_seconds()))) return false;
     emit noteChanged(localId);
     emit notesChanged();
+    noteSaved();
     return true;
 }
 
@@ -618,6 +752,7 @@ bool NotesBridge::toggleFavorite(qlonglong localId) {
     if (!finish_edit(this, store_->set_favorite(localId, !note->favorite, now_seconds()))) return false;
     emit noteChanged(localId);
     emit notesChanged();
+    noteSaved();
     return true;
 }
 
@@ -630,5 +765,6 @@ bool NotesBridge::toggleTask(qlonglong localId, int lineIndex) {
     if (!after || after->content == before->content) return false;
     emit noteChanged(localId);
     emit notesChanged();
+    noteSaved();
     return true;
 }
