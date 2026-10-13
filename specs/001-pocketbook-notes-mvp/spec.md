@@ -343,7 +343,8 @@ expected notes each time.
 - **FR-030**: Notes removed on the server MUST be removed from the device only if they have no
   unsynced local changes.
 - **FR-031**: Background sync is not provided; the system MUST sync only on user request or at
-  app start.
+  app start. (Refined by feature 008: with the setting "Auto Sync" on, a completed save is a
+  third, opt-in trigger; there is still no timer-based or background sync.)
 
 **Conflicts and data safety**
 
