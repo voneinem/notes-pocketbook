@@ -19,8 +19,9 @@ the ones `scripts/package-device.sh` already installs. It ships in one slice:
 3. **`scripts/check-release.sh`** compares tag, `VERSION`, ZIP name and the manifest inside the ZIP (FR-013) and has a
    `--self-test` like the other gates. The tag, the GitHub release and the notes stay a deliberate step of the
    maintainer, documented in the README.
-4. **Docs**: README (build, tool, release steps; `zip` no longer a prerequisite), `INSTALL.md` (the package contents
-   list; it is no longer "part of the package"), `CHANGELOG.md`, `NOTICE` untouched.
+4. **Docs**: README (build, tool, release steps chained with `&&`, package command writing to `dist`; `zip` no longer a
+   prerequisite), `INSTALL.md` (one sentence: the package also holds a `manifest.json` for the store; the README no longer
+   says the file is part of the package), `CHANGELOG.md`, `NOTICE` untouched.
 5. **Release** 1.10.1 (PATCH: the installed app is byte-for-byte the 1.10.0 app apart from its version string).
 
 The resolved unknowns are in [research.md](research.md) (R-1 … R-8); the interfaces are in
@@ -111,7 +112,7 @@ tests/
     └── test_package_device.sh    # NEW   fake binary + stub/real pbstore-catalog; failure paths
 
 README.md                         # CHG   build + tool + release steps; INSTALL.md link; drop `zip` prerequisite
-INSTALL.md                        # CHG   "also part of the package" wording; otherwise unchanged (manual route)
+INSTALL.md                        # CHG   one sentence about manifest.json; otherwise unchanged (manual route)
 CHANGELOG.md, VERSION             # CHG   1.10.1
 ```
 

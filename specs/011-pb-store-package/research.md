@@ -83,8 +83,8 @@ right for the manual route because the `applications/` set is unchanged.
 **Decision**: `scripts/check-release.sh [<zip>] [<tag>]` (defaults: `dist/pbnotes-inkpad-one-$(cat VERSION).zip`,
 `v$(cat VERSION)`). It reads `manifest.json` from the ZIP with `unzip -p`, extracts `"version"` with `sed`, and requires:
 tag = `v` + manifest version, manifest version = `VERSION`, ZIP file name = `pbnotes-inkpad-one-<manifest version>.zip`.
-Exit 1 with one line per mismatch. `--self-test` builds throw-away ZIPs (with `zip`, available in the test environment as
-a fixture tool only) to show pass and each mismatch fail. Not part of `pre-merge.sh` (no ZIP exists there); it is a step of
+Exit 1 with one line per mismatch. `--self-test` builds throw-away ZIPs (with `python3 -m zipfile`, so no `zip` command is
+needed) to show pass and each mismatch fail. Not part of `pre-merge.sh` (no ZIP exists there); it is a step of
 the documented release procedure and of `quickstart.md`.
 
 **Rationale**: the store checks `E-ENT-14` (tag in `package_url` = manifest version) only when the entry is added, a repo

@@ -51,11 +51,14 @@ start **PB Notes**. Expected: the same as with 1.10.0. Record the result in `res
 ## 5. Release
 
 ```bash
-git tag "v$(cat VERSION)"                       # after the merge
-scripts/check-release.sh                        # expected: release check passed (<version>)
-git push origin "v$(cat VERSION)"
+git tag "v$(cat VERSION)" &&                    # after the merge
+scripts/check-release.sh &&                     # expected: release check passed (<version>)
+git push origin "v$(cat VERSION)" &&
 gh release create "v$(cat VERSION)" "dist/pbnotes-inkpad-one-$(cat VERSION).zip" --title "<version>" --notes-file <notes>
 ```
+
+Chained on purpose: a mismatch stops the sequence before anything is pushed. To see it stop, run
+`scripts/check-release.sh dist/pbnotes-inkpad-one-$(cat VERSION).zip v0.0.0`: expected exit 1 with a `release check FAILED` line.
 
 Then verify the published asset (US4, scenario 3):
 

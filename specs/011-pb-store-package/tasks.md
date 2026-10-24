@@ -81,19 +81,20 @@ shows the data-model values and the `VERSION`.
 ### Tests for User Story 1 (write first, observe failing)
 
 - [ ] T006 [US1] In `tests/packaging/test_package_device.sh` add case "package passes the store check" (real tool, else
-  SKIP): build into a temp dir, then `<real tool> check-package <zip>` exits 0. Observed failing: the current script puts
+  SKIP): build into a temp dir **with the real tool's directory prepended to `PATH`** (until US2 the script looks the tool up
+  on `PATH` only, even when the test found it through `PBSTORE_CATALOG`), then `<real tool> check-package <zip>` exits 0.
+  Observed failing: the current script puts
   `INSTALL.md` at the root and writes no manifest (E-PKG-04, E-PKG-05). Run it and record the failure in the task's commit message
 - [ ] T007 [US1] In the same file add case "top level and manifest" (needs only a **stub** tool, so it always runs): the stub
-  `pbstore-catalog` implements `pack <dir> --out <zip>` by copying `<dir>/manifest.json` to a side file and zipping `<dir>`
-  with `zip -qr`, and `check-package` as `exit 0`. Assert on the **staged directory** the stub saw: `manifest.json` exists, its
+  `pbstore-catalog` implements `pack <dir> --out <zip>` by copying the whole `<dir>` tree to a side directory and creating an
+  empty file at `<zip>` (no ZIP tool needed), and `check-package` as `exit 0`. Assert on the **staged directory** the stub saw: `manifest.json` exists, its
   `version` equals `cat VERSION`, `schema_version` "1.0", `id` "pbnotes", `name` "PB Notes", `min_firmware` "6.11.1437",
   `target_device` "InkPad One", `menu_entry.id` "U_PbNotes", `title` "PB Notes", `path` "applications/pbnotes.app", `icon`
   "applications/icons/pbnotes.bmp", `focused_icon` "applications/icons/pbnotes_f.bmp", `group` "@General", `data_dir`
   "system/pbnotes"; the staged top level is only `manifest.json` and `applications`; no `INSTALL.md` anywhere. (Parse with
   `python3 -c 'import json,sys…'` or `grep`, whichever the file already uses.) Observed failing: no manifest is staged today
-- [ ] T008 [US1] In the same file add case "version comes from one source": with `VERSION` 1.10.0 in a copy of the repo
-  (`cp -r` of `scripts/`, `packaging/`, `VERSION`, and the inputs the script reads — or run with the argument `9.8.7`: `build`
-  with a fake binary containing `9.8.7` and the version argument `9.8.7`), the ZIP is named `pbnotes-inkpad-one-9.8.7.zip` and
+- [ ] T008 [US1] In the same file add case "version comes from one source": run `build` with a fake binary containing `9.8.7`
+  and the version argument `9.8.7`; the ZIP is named `pbnotes-inkpad-one-9.8.7.zip` and
   the staged manifest says `9.8.7`. Observed failing for the manifest part
 
 ### Implementation for User Story 1
@@ -121,8 +122,8 @@ build, and no new ZIP after any failure.
 ### Tests for User Story 2 (write first, observe failing)
 
 - [ ] T011 [US2] In `tests/packaging/test_package_device.sh` add case "tool missing": `PATH` set to a temp dir holding only
-  symlinks to the commands the script needs (`bash`, `sed`, `grep`, `head`, `tr`, `sort`, `mktemp`, `install`, `mkdir`, `rm`,
-  `cmp`, `cat`, `dirname`, `basename`, `mv`, `cd` is a builtin) and `PBSTORE_CATALOG` unset: exit code 1, stderr contains
+  symlinks to the commands the script needs (`env` for the `#!/usr/bin/env bash` line, `bash`, `sed`, `grep`, `head`, `tr`,
+  `sort`, `mktemp`, `install`, `mkdir`, `rm`, `cmp`, `cat`, `dirname`, `basename`, `mv`; `cd` is a builtin) and `PBSTORE_CATALOG` unset: exit code 1, stderr contains
   `pbstore-catalog not found` and `PBSTORE_CATALOG`, **no** `*.zip` in the output folder, and the check happens before any
   staging (stderr has no `missing input`). Observed failing: today the shell reports `command not found` with another exit code
   and text
@@ -138,9 +139,10 @@ build, and no new ZIP after any failure.
   follows, and the output folder contains no `*.zip` — also when a ZIP of the same version existed before (create a
   placeholder file with that name first; it must be gone). Observed failing
 - [ ] T015 [US2] Add case "bad inputs": version argument `1.2` or `1.2.x` → exit 1 `version is not MAJOR.MINOR.PATCH`; a
-  copy of the template with an extra `@X@` is not testable without changing `ROOT`, so test it by running the script from a
-  temporary copy of the repository files it reads (`cp -r "$ROOT/scripts" "$ROOT/packaging" …` into the temp dir, edit the
-  copy's template) → exit 1 `unfilled placeholder`; a missing template → `missing input: …manifest.template.json`. Observed
+  template with an extra `@X@` needs a different `ROOT` (the script derives it from its own location), so build a temporary
+  root: copy `scripts/` and `packaging/` from the repository into it, symlink `platform`, `third_party`, `res`, `licenses`
+  and `VERSION` from the repository, append `@X@` to the **copied** `packaging/manifest.template.json`, and run the copied
+  script → exit 1 `unfilled placeholder`; a missing template (delete it in that copy) → `missing input: …manifest.template.json`. Observed
   failing for the first two
 
 ### Implementation for User Story 2
@@ -203,7 +205,8 @@ notes, with no copy in the ZIP.
 
 - [ ] T025 [US4] Create `scripts/check-release.sh` containing **only** the `--self-test` branch and a stub `check()`
   (header comment per `contracts/packaging.md`), in the style of `scripts/check-version-bump.sh`. The self-test builds
-  throw-away ZIPs in a temp dir with `zip` (a fixture tool only; skip with a clear message if `zip` is missing): a ZIP
+  throw-away ZIPs in a temp dir with `python3 -m zipfile -c <zip> <files…>` (python3 is already a build-time tool here, so no
+  `zip` command is needed): a ZIP
   `pbnotes-inkpad-one-1.2.3.zip` holding `manifest.json` `{"version": "1.2.3"}` with a `VERSION` file `1.2.3` → expect pass for
   tag `v1.2.3`; fail for tag `v1.2.4`; fail when `VERSION` says `1.2.4`; fail when the ZIP is named `…-1.2.4.zip`; fail when the
   ZIP has no `manifest.json`; fail (exit 2) when the ZIP does not exist. Register
@@ -231,7 +234,10 @@ notes, with no copy in the ZIP.
   `PBSTORE_CATALOG`" with no real path; (b) after the device build command add the one-line explanation of what the script
   now does (manifest, pack twice, check); (c) in "Versions" replace "tag the release" by the release steps block of
   `contracts/packaging.md` (tag, `scripts/check-release.sh`, push, `gh release create` with notes = changelog entry + a link to
-  `INSTALL.md` at that tag); (d) mention `packaging/manifest.template.json` as the place to change manifest values
+  `INSTALL.md` at that tag), with `scripts/check-release.sh` **chained** to the push and the release by `&&` so a mismatch stops
+  the release (FR-013, US4 scenario 2); (d) mention `packaging/manifest.template.json` as the place to change manifest values;
+  (e) change the README's package command from `build-arm/dist` to the default output folder `dist` (the folder
+  `check-release.sh`, the release block and `quickstart.md` use), so the documented commands fit together
 - [ ] T029 Raise `VERSION` to `1.10.1` and add the `## 1.10.1` entry to `CHANGELOG.md` (above 1.10.0): the release package now
   follows the PB Store package contract (a `manifest.json`, built with the store's tool, reproducibly); install instructions
   are no longer inside the package but in the repository and the release notes; "No change to the app, to notes, sync or the

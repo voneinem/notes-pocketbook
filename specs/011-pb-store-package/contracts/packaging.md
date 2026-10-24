@@ -51,10 +51,11 @@ value (for example `min_firmware`) is an edit of this file only; no script chang
 
 ```bash
 scripts/package-device.sh build-arm/app/pbnotes.app "" dist     # needs pbstore-catalog (PATH or PBSTORE_CATALOG)
-git tag "v$(cat VERSION)"                                       # after the merge
-scripts/check-release.sh                                        # tag, VERSION, ZIP name, manifest version agree
-git push origin "v$(cat VERSION)"
+git tag "v$(cat VERSION)" &&                                   # after the merge
+scripts/check-release.sh &&                                     # tag, VERSION, ZIP name, manifest version agree
+git push origin "v$(cat VERSION)" &&
 gh release create "v$(cat VERSION)" "dist/pbnotes-inkpad-one-$(cat VERSION).zip" --notes-file <notes>
 ```
 
-`<notes>` = the `CHANGELOG.md` entry plus a link to `INSTALL.md` at that tag.
+The steps are chained with `&&` on purpose: when `check-release.sh` reports a mismatch, nothing is pushed or published
+(FR-013). `<notes>` = the `CHANGELOG.md` entry plus a link to `INSTALL.md` at that tag.
