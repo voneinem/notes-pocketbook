@@ -250,7 +250,7 @@ notes, with no copy in the ZIP.
   paths) with the real tool. Record the outputs (check result, SHA-256) in `research.md` under "Build check"
 - [x] T032 [MANUAL] Quickstart §4: install the new package by hand on the InkPad One as `INSTALL.md` describes and start the
   app; record "works like 1.10.0" (or what differs) in `research.md` under "Device check". Mention the file-mode note of R-1
-- [ ] T033 [MANUAL] After the merge to `main` and only when the maintainer says so: quickstart §5 — tag `v1.10.1`,
+- [x] T033 [MANUAL] After the merge to `main` and only when the maintainer says so: quickstart §5 — tag `v1.10.1`,
   `scripts/check-release.sh`, push the tag, create the GitHub release with the ZIP and the notes, download the asset and run
   `check-package` on it. Outward-facing: do not do this unprompted
 
