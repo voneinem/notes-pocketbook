@@ -106,7 +106,21 @@ The icons are SVG line drawings in `qml/icons/` (own work, MIT); the shared cons
 
 The release version is the file [VERSION](VERSION); the app, the About screen and the package name all use it.
 Every feature raises it and adds an entry to [CHANGELOG.md](CHANGELOG.md); `scripts/pre-merge.sh` fails
-otherwise (`scripts/check-version-bump.sh`). After the merge, tag the release: `git tag v$(cat VERSION)`.
+otherwise (`scripts/check-version-bump.sh`).
+
+To release, after the merge and with the package built into `dist/` (see below): tag, check that the tag, `VERSION`, the
+package name and the version inside the package agree, push the tag and publish the GitHub release with the package.
+The steps are chained so that a mismatch stops them:
+
+```bash
+git tag "v$(cat VERSION)" &&
+scripts/check-release.sh &&
+git push origin "v$(cat VERSION)" &&
+gh release create "v$(cat VERSION)" "dist/pbnotes-inkpad-one-$(cat VERSION).zip" --notes-file <notes>
+```
+
+`<notes>` is the `CHANGELOG.md` entry of the version plus a link to `INSTALL.md` at that tag (the install steps are not
+inside the package).
 
 ### About box
 
@@ -211,7 +225,9 @@ Requirements on the development machine (Linux x86-64):
 - `cmake` 3.16 or later, `ninja` (or `make`), a C++17 compiler
 - libcurl development package, version 7.85 or later (Debian/Ubuntu: `libcurl4-openssl-dev`)
 - OpenSSL development package and the `openssl` command (the TLS tests start local HTTPS servers)
-- `zip` (packaging)
+- For the install package: `pbstore-catalog` from the appstore-pocketbook repository (tag v0.1.1 or newer), on `PATH` or
+  named by the environment variable `PBSTORE_CATALOG` (the tool's path; there is no default location), and `unzip` and
+  `python3` (the release check and the packaging tests)
 - For the device build and the optional desktop app: the Qt6 base and declarative development
   packages, and the host Qt tools (`qt6-base-dev-tools`, which provides `rcc`; the SDK's own `rcc`
   does not run on current hosts)
@@ -238,14 +254,21 @@ export POCKETBOOK_SDK=/path/to/arm-buildroot-linux-gnueabihf_sdk-buildroot   # o
 cmake -S . -B build-arm -G Ninja -DTARGET_TYPE=ARM -DCMAKE_BUILD_TYPE=Release
 cmake --build build-arm
 file build-arm/app/pbnotes.app          # ELF 32-bit LSB executable, ARM, EABI5
-scripts/package-device.sh build-arm/app/pbnotes.app "" build-arm/dist
+scripts/package-device.sh build-arm/app/pbnotes.app "" dist
 ```
+
+The package follows the PB Store package contract: `manifest.json` (made from
+[packaging/manifest.template.json](packaging/manifest.template.json) and the `VERSION` file; change the fixed values
+there) and the `applications/` tree, nothing else at the top level. The script packs twice with `pbstore-catalog pack`,
+requires both zips to be identical, runs `pbstore-catalog check-package` and only then writes
+`dist/pbnotes-inkpad-one-<version>.zip`. It stops with a message when the tool is missing.
 
 More detail and the end-to-end checks: [quickstart.md](specs/001-pocketbook-notes-mvp/quickstart.md).
 
 ## Installing on the device
 
-See [INSTALL.md](INSTALL.md) (also part of the package). In short: copy `applications/` to the
+See [INSTALL.md](INSTALL.md) (it lives in the repository and is linked from each GitHub release; it is not
+inside the package). In short: copy `applications/` to the
 reader's storage root, register the app in `system/config/desktop/view.json`, reboot. These steps
 were used on an InkPad One.
 

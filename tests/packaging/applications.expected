@@ -1,0 +1,17 @@
+applications/icons/pbnotes.bmp
+applications/icons/pbnotes_f.bmp
+applications/pbnotes-cacert.pem
+applications/pbnotes-emoji-OFL.txt
+applications/pbnotes-emoji.ttf
+applications/pbnotes-licenses/LICENSE
+applications/pbnotes-licenses/licenses/Apache-2.0.txt
+applications/pbnotes-licenses/licenses/GPL-3.0.txt
+applications/pbnotes-licenses/licenses/LGPL-2.1.txt
+applications/pbnotes-licenses/licenses/LGPL-3.0.txt
+applications/pbnotes-licenses/licenses/MPL-2.0.txt
+applications/pbnotes-licenses/licenses/curl.txt
+applications/pbnotes-licenses/licenses/inkfeed-MIT.txt
+applications/pbnotes-licenses/licenses/manifest.txt
+applications/pbnotes-licenses/third_party/noto-emoji/OFL.txt
+applications/pbnotes.app
+applications/pbnotes.bin

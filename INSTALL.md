@@ -3,6 +3,9 @@
 These steps install the app from the release zip. They are written for the InkPad One
 (RK3566); other models are untested.
 
+The package also holds a `manifest.json` at its top level. The PB Store reads it; for the steps below ignore it and
+copy only the `applications/` folder.
+
 ## 1. Copy the files
 
 1. Connect the reader over USB so its storage appears as a drive.

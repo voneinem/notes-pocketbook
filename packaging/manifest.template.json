@@ -1,0 +1,17 @@
+{
+  "schema_version": "1.0",
+  "id": "pbnotes",
+  "name": "PB Notes",
+  "version": "@VERSION@",
+  "min_firmware": "6.11.1437",
+  "target_device": "InkPad One",
+  "menu_entry": {
+    "id": "U_PbNotes",
+    "title": "PB Notes",
+    "path": "applications/pbnotes.app",
+    "icon": "applications/icons/pbnotes.bmp",
+    "focused_icon": "applications/icons/pbnotes_f.bmp",
+    "group": "@General"
+  },
+  "data_dir": "system/pbnotes"
+}

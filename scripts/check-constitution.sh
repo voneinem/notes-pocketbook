@@ -36,7 +36,7 @@ scan() {
     while IFS= read -r -d '' f; do
         [ -f "$root/$f" ] || continue
         case "$f" in
-            third_party/*|"scripts/$SELF"|.claude/*|*.bmp|*.zip|*.pem) continue ;;
+            third_party/*|"scripts/$SELF"|.claude/*|.specify/extensions/*|*.bmp|*.zip|*.pem) continue ;;
         esac
         grep -Iq . "$root/$f" 2>/dev/null || continue   # skip binary/empty files
         local p="$root/$f"

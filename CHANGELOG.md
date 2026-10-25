@@ -4,6 +4,17 @@ One entry per release, newest first. The heading is the content of `VERSION`; th
 `v<version>` after the merge. `scripts/check-version-bump.sh` (part of `scripts/pre-merge.sh`) fails when a
 branch changes the product without raising `VERSION` and adding the entry here.
 
+## 1.10.1
+
+- The install package now follows the PB Store package contract, so the PB Store can list PB Notes: it has a
+  `manifest.json` at its top level (made at build time from a template and the version), is written by the store's
+  own packing tool, is built twice and compared to prove it is reproducible, and passes the store's package check.
+  `INSTALL.md` is no longer inside the package; it stays in the repository and is linked from each release. The files
+  under `applications/` and the package name are unchanged, so installing by hand works as before.
+- New `scripts/check-release.sh` checks that the release tag, `VERSION`, the package name and the package's own version
+  agree before a release is published.
+- No change to the app, to notes, sync or the data.
+
 ## 1.10.0
 
 - Settings, set-up, About, the license pages and the attach file browser now look like the rest of the app and the reader's

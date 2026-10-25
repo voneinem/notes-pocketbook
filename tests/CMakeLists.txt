@@ -103,6 +103,12 @@ add_test(NAME check_constitution_selftest COMMAND ${CMAKE_SOURCE_DIR}/scripts/ch
 add_test(NAME check_ui_style COMMAND ${CMAKE_SOURCE_DIR}/scripts/check-ui-style.sh ${CMAKE_SOURCE_DIR})
 add_test(NAME check_ui_style_selftest COMMAND ${CMAKE_SOURCE_DIR}/scripts/check-ui-style.sh --self-test)
 add_test(NAME check_version_bump_selftest COMMAND ${CMAKE_SOURCE_DIR}/scripts/check-version-bump.sh --self-test)
+# Spec 011: tag, VERSION, package name and manifest version agree; a self-test proving the gate works.
+add_test(NAME check_release_selftest COMMAND ${CMAKE_SOURCE_DIR}/scripts/check-release.sh --self-test)
 set_tests_properties(check_fixtures check_fixtures_selftest check_constitution check_constitution_selftest
                      PROPERTIES LABELS "script")
 add_test(NAME launcher_script COMMAND ${CMAKE_SOURCE_DIR}/tests/launcher/test_launcher.sh ${CMAKE_SOURCE_DIR})
+# Spec 011: the release package follows the PB Store contract (manifest, store tool, reproducible, checked).
+# Exit 77 = nothing could run (skipped).
+add_test(NAME packaging_script COMMAND ${CMAKE_SOURCE_DIR}/tests/packaging/test_package_device.sh ${CMAKE_SOURCE_DIR})
+set_tests_properties(packaging_script PROPERTIES SKIP_RETURN_CODE 77 LABELS "script")
