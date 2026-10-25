@@ -109,3 +109,50 @@ anyone who has it).
 
 - The catalog entry (`catalog/entries/pbnotes.json`) in `appstore-pocketbook`; its `package_url` must use the tag chosen here.
 - `min_firmware` is the author's firmware by decision; other models/firmware are untested and not claimed.
+
+## Baseline (1.10.0)
+
+`pbstore-catalog check-package dist/pbnotes-inkpad-one-1.10.0.zip` (tool 0.1.0), exit 1:
+
+```text
+error[E-PKG-04] INSTALL.md: "INSTALL.md" is not allowed at the package root (only manifest.json and the applications/ tree)
+error[E-PKG-05] manifest.json: manifest.json is missing from the package root
+```
+
+The ZIP holds `INSTALL.md`, 17 files under `applications/` (listed in `tests/packaging/applications.expected`, sorted with
+`LC_ALL=C sort`) and the directory entries `applications/…/`.
+
+## Build check (1.10.1, quickstart §2 and §3)
+
+Date 2026-10-24. ARM build (`cmake --build build-arm`, ELF 32-bit ARM EABI5, contains `1.10.1`), packaged with
+`scripts/package-device.sh build-arm/app/pbnotes.app "" dist`, `pbstore-catalog 0.1.0` via `PBSTORE_CATALOG`.
+
+| Check | Result |
+|-------|--------|
+| `check-package dist/pbnotes-inkpad-one-1.10.1.zip` | exit 0, `package ok`, 2638866 bytes, SHA-256 `610c52f8fc51ad8dc0454faddc08edc9b21d20fe495cabaa0ca35e27d9a7eb1f` |
+| Top level | only `manifest.json` (plus `applications/`); no `INSTALL` entry |
+| Manifest | all values of `data-model.md`, `version` 1.10.1, 17 files listed |
+| `applications/` vs the 1.10.0 ZIP | identical file lists; `applications/pbnotes.bin` equals the built binary byte for byte |
+| Reproducible | a second build one second later: same SHA-256 |
+| `scripts/check-release.sh … v1.10.1` | `release check passed (1.10.1)`; with `v0.0.0`: exit 1, `tag v0.0.0 does not match manifest version 1.10.1` |
+| Tool not on `PATH`, variable unset | exit 1, `pbstore-catalog not found. Put it on PATH or set PBSTORE_CATALOG …`, output folder not created |
+| `PBSTORE_CATALOG=<nonexistent>` | exit 1, `PBSTORE_CATALOG is set but is not an executable file` |
+| Version argument 9.9.9, binary built for 1.10.1 | exit 1, `version mismatch`, no ZIP |
+
+The ZIP is 2638866 bytes, the 1.10.0 ZIP 2640388 bytes (no `INSTALL.md`, no directory entries, a manifest with the file
+list added). The `placeholder` row of §3 is covered by `packaging_script`.
+
+## Device check (1.10.1, quickstart §4)
+
+Date 2026-10-25. InkPad One, firmware 6.11.1437, reader volume mounted over USB (vfat). The files of
+`applications/` from `dist/pbnotes-inkpad-one-1.10.1.zip` were compared with the installed 1.10.0 set: only
+`applications/pbnotes.bin` differed, so only it was copied (verified with `cmp`); the launcher script, icons, CA bundle,
+emoji font and license texts were already identical. `view.json` and the notes database were not touched.
+
+| Check | Result |
+|-------|--------|
+| App starts from the PB Notes menu entry | works, same as 1.10.0 |
+| Launch log (`system/pbnotes/pbnotes.log`) | `Starting task - pbnotes.app`, `pbnotes.bin` started from `/mnt/ext1/applications/`, theme opened, no error |
+| Mode change by `pack` (0644 instead of 0777 on `pbnotes.bin` / `pbnotes.app`) | no effect: the reader's FAT volume has no file modes |
+
+Result: the manual-install route (US3 scenario 2, FR-011, SC-003) works with the package built by `pbstore-catalog pack`.
